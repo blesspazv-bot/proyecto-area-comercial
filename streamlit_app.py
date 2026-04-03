@@ -72,7 +72,7 @@ def fecha_corta(fecha):
 
 
 def usd_fmt(valor):
-    return f"USD$ {valor:,.0f}".replace(",", ".")
+    return f"USD {valor:,.0f}".replace(",", ".")
 
 
 def clp_fmt(valor):

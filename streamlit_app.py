@@ -327,7 +327,6 @@ with tab_cot:
                 "cantidad_unidades": int(cantidad_unidades),
                 "precio_unitario_raw": float(precio_unitario),
                 "total_negocio_raw": float(total_negocio),
-                "contrato_mantto": contrato_mantto,
                 "texto_mantto": texto_mantto,
                 "capacidad_bateria": capacidad_bateria,
             }

@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 import os
 import sqlite3
 import tempfile
@@ -262,7 +264,35 @@ def generar_docx(contexto, nombre_salida):
     salida = os.path.join(tmp_dir, f"{nombre_salida}.docx")
     doc.save(salida)
     return salida
+def convertir_docx_a_pdf(docx_path):
+    if shutil.which("soffice") is None:
+        raise RuntimeError(
+            "LibreOffice no está instalado en el entorno. Instálalo para generar PDF."
+        )
 
+    output_dir = os.path.dirname(docx_path)
+
+    comando = [
+        "soffice",
+        "--headless",
+        "--convert-to", "pdf",
+        "--outdir", output_dir,
+        docx_path
+    ]
+
+    resultado = subprocess.run(comando, capture_output=True, text=True)
+
+    if resultado.returncode != 0:
+        raise RuntimeError(
+            f"Error al convertir a PDF.\nSTDOUT: {resultado.stdout}\nSTDERR: {resultado.stderr}"
+        )
+
+    pdf_path = os.path.splitext(docx_path)[0] + ".pdf"
+
+    if not os.path.exists(pdf_path):
+        raise RuntimeError("No se generó el archivo PDF.")
+
+    return pdf_path
 
 # =========================================================
 # EXPORTAR RESULTADOS EXCEL
@@ -341,75 +371,93 @@ with tab_cot:
         st.info(f"Próximo correlativo automático: {pref}-{prox:02d}")
 
     if st.button("Generar cotización", use_container_width=True):
-        if not cliente.strip():
-            st.error("Debes ingresar el nombre del cliente.")
-        else:
-            datos_firma = COTIZANTES[cotizante]
-            correlativo = siguiente_correlativo(cotizante)
-            numero_cotizacion = f'{datos_firma["prefijo"]}-{correlativo:02d}'
-            total_negocio = precio_unitario * cantidad_unidades
+    if not cliente.strip():
+        st.error("Debes ingresar el nombre del cliente.")
+    else:
+        datos_firma = COTIZANTES[cotizante]
+        correlativo = siguiente_correlativo(cotizante)
+        numero_cotizacion = f'{datos_firma["prefijo"]}-{correlativo:02d}'
+        total_negocio = precio_unitario * cantidad_unidades
 
-            nombre_archivo = (
-                f"Propuesta_foton_U9_"
-                f"{limpiar_nombre_archivo(cliente.strip())}_"
-                f"{limpiar_nombre_archivo(capacidad_bateria)}_"
-                f"{fecha_corta(fecha)}"
-            )
+        nombre_archivo = (
+            f"Propuesta_foton_U9_"
+            f"{limpiar_nombre_archivo(cliente.strip())}_"
+            f"{limpiar_nombre_archivo(capacidad_bateria)}_"
+            f"{fecha_corta(fecha)}"
+        )
 
-            contexto = {
-                "fecha_larga": fecha_larga_es(fecha),
-                "fecha_corta": fecha_corta(fecha),
-                "numero_cotizacion": numero_cotizacion,
-                "cliente": cliente.strip(),
-                "cantidad_unidades": cantidad_unidades,
-                "precio_unitario": usd_fmt(precio_unitario),
-                "capacidad_bateria": capacidad_bateria,
-                "texto_mantto": formatear_texto_mantto(texto_mantto),
-                "firma_nombre": datos_firma["firma_nombre"],
-                "firma_cargo": datos_firma["firma_cargo"],
-                "firma_correo": datos_firma["firma_correo"],
-                "firma_telefono": datos_firma["firma_telefono"],
-            }
+        contexto = {
+            "fecha_larga": fecha_larga_es(fecha),
+            "fecha_corta": fecha_corta(fecha),
+            "numero_cotizacion": numero_cotizacion,
+            "cliente": cliente.strip(),
+            "cantidad_unidades": cantidad_unidades,
+            "precio_unitario": usd_fmt(precio_unitario),
+            "capacidad_bateria": capacidad_bateria,
+            "texto_mantto": formatear_texto_mantto(texto_mantto),
+            "firma_nombre": datos_firma["firma_nombre"],
+            "firma_cargo": datos_firma["firma_cargo"],
+            "firma_correo": datos_firma["firma_correo"],
+            "firma_telefono": datos_firma["firma_telefono"],
+        }
 
-            registro = {
-                "fecha_iso": fecha.isoformat(),
-                "cliente": cliente.strip(),
-                "cotizante": cotizante,
-                "prefijo": datos_firma["prefijo"],
-                "correlativo": correlativo,
-                "numero_cotizacion": numero_cotizacion,
-                "cantidad_unidades": int(cantidad_unidades),
-                "precio_unitario_raw": float(precio_unitario),
-                "total_negocio_raw": float(total_negocio),
-                "contrato_mantto": contrato_mantto,
-                "texto_mantto": texto_mantto,
-                "capacidad_bateria": capacidad_bateria,
-            }
+        registro = {
+            "fecha_iso": fecha.isoformat(),
+            "cliente": cliente.strip(),
+            "cotizante": cotizante,
+            "prefijo": datos_firma["prefijo"],
+            "correlativo": correlativo,
+            "numero_cotizacion": numero_cotizacion,
+            "cantidad_unidades": int(cantidad_unidades),
+            "precio_unitario_raw": float(precio_unitario),
+            "total_negocio_raw": float(total_negocio),
+            "contrato_mantto": contrato_mantto,
+            "texto_mantto": texto_mantto,
+            "capacidad_bateria": capacidad_bateria,
+        }
 
-            try:
-                archivo_path = generar_docx(contexto, nombre_archivo)
-                guardar_cotizacion(registro)
+        try:
+            archivo_docx = generar_docx(contexto, nombre_archivo)
+            guardar_cotizacion(registro)
 
-                with open(archivo_path, "rb") as f:
-                    contenido = f.read()
+            with open(archivo_docx, "rb") as f:
+                contenido_docx = f.read()
 
-                st.success(f"Cotización {numero_cotizacion} generada correctamente.")
-                st.write(f"**Cliente:** {cliente.strip()}")
-                st.write(f"**Cotizante:** {cotizante}")
-                st.write(f"**Precio unitario:** {usd_fmt(precio_unitario)}")
-                st.write(f"**Total negocio:** {usd_fmt(total_negocio)}")
+            st.success(f"Cotización {numero_cotizacion} generada correctamente.")
+            st.write(f"**Cliente:** {cliente.strip()}")
+            st.write(f"**Cotizante:** {cotizante}")
+            st.write(f"**Precio unitario:** {usd_fmt(precio_unitario)}")
+            st.write(f"**Total negocio:** {usd_fmt(total_negocio)}")
 
+            col_desc1, col_desc2 = st.columns(2)
+
+            with col_desc1:
                 st.download_button(
                     "Descargar cotización Word",
-                    data=contenido,
+                    data=contenido_docx,
                     file_name=f"{nombre_archivo}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
 
-            except Exception as e:
-                st.error(f"Error al generar la cotización: {e}")
+            try:
+                archivo_pdf = convertir_docx_a_pdf(archivo_docx)
 
+                with open(archivo_pdf, "rb") as f:
+                    contenido_pdf = f.read()
 
+                with col_desc2:
+                    st.download_button(
+                        "Descargar cotización PDF",
+                        data=contenido_pdf,
+                        file_name=f"{nombre_archivo}.pdf",
+                        mime="application/pdf"
+                    )
+
+            except Exception as e_pdf:
+                st.warning(f"Se generó el Word, pero no fue posible convertir a PDF: {e_pdf}")
+
+        except Exception as e:
+            st.error(f"Error al generar la cotización: {e}")
 # =========================================================
 # TAB 2 - HISTORIAL
 # =========================================================

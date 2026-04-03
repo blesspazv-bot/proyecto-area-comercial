@@ -155,7 +155,7 @@ def fecha_larga_es(fecha):
 
 
 def usd_fmt(valor):
-    return f"USD$ {valor:,.0f}".replace(",", ".")
+    return f"USD {valor:,.0f}".replace(",", ".")
 
 
 def generar_docx(contexto):
@@ -196,6 +196,7 @@ with tab1:
         cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
         precio_unitario = st.number_input("Precio unitario USD", min_value=0.0, value=130491.0, step=1000.0)
         contrato_mantto = st.text_input("Contrato mantto", value="48 meses")
+        capacidad_bateria = st.selectbox("Capacidad nominal batería",["231,8 kWh", "255 kWh"]) 
 
     texto_mantto = st.text_area(
         "Bloque beneficios / mantenimiento",
@@ -232,6 +233,7 @@ with tab1:
                 "cantidad_unidades": cantidad_unidades,
                 "precio_unitario": usd_fmt(precio_unitario),
                 "texto_mantto": texto_mantto,
+                "capacidad_bateria": capacidad_bateria,
                 "firma_nombre": datos_firma["firma_nombre"],
                 "firma_cargo": datos_firma["firma_cargo"],
                 "firma_correo": datos_firma["firma_correo"],

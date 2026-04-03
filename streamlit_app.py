@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import tempfile
 from datetime import date
 
 import pandas as pd
@@ -50,6 +51,9 @@ COTIZANTES = {
 }
 
 
+# =========================================================
+# BASE DE DATOS
+# =========================================================
 def get_conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
 
@@ -71,7 +75,7 @@ def init_db():
             total_negocio REAL NOT NULL,
             contrato_mantto TEXT,
             texto_mantto TEXT,
-            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            creado_en TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
     conn.commit()
@@ -82,7 +86,11 @@ def siguiente_correlativo(cotizante):
     prefijo = COTIZANTES[cotizante]["prefijo"]
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT COALESCE(MAX(correlativo), 0) + 1 FROM cotizaciones WHERE prefijo = ?", (prefijo,))
+    cur.execute("""
+        SELECT COALESCE(MAX(correlativo), 0) + 1
+        FROM cotizaciones
+        WHERE prefijo = ?
+    """, (prefijo,))
     valor = cur.fetchone()[0]
     conn.close()
     return valor
@@ -95,9 +103,9 @@ def guardar_cotizacion(data):
         INSERT INTO cotizaciones (
             fecha, cliente, cotizante, prefijo, correlativo, numero_cotizacion,
             cantidad_unidades, precio_unitario, total_negocio,
-            contrato_mantto, texto_mantto
+            contrato_mantto, texto_mantto, creado_en
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     """, (
         data["fecha_iso"],
         data["cliente"],
@@ -118,8 +126,15 @@ def guardar_cotizacion(data):
 def cargar_historial():
     conn = get_conn()
     df = pd.read_sql_query("""
-        SELECT fecha, cliente, cotizante, numero_cotizacion,
-               cantidad_unidades, precio_unitario, total_negocio, creado_en
+        SELECT
+            fecha,
+            cliente,
+            cotizante,
+            numero_cotizacion,
+            cantidad_unidades,
+            precio_unitario,
+            total_negocio,
+            creado_en
         FROM cotizaciones
         ORDER BY id DESC
     """, conn)
@@ -127,6 +142,9 @@ def cargar_historial():
     return df
 
 
+# =========================================================
+# UTILIDADES
+# =========================================================
 def fecha_larga_es(fecha):
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     meses = [
@@ -142,19 +160,28 @@ def usd_fmt(valor):
 
 def generar_docx(contexto):
     if not os.path.exists(TEMPLATE_FILE):
-        raise FileNotFoundError(f"No existe la plantilla: {TEMPLATE_FILE}")
+        raise FileNotFoundError(
+            f"No se encontró la plantilla '{TEMPLATE_FILE}'. "
+            f"Debes dejarla en la misma carpeta del proyecto."
+        )
 
     doc = DocxTemplate(TEMPLATE_FILE)
     doc.render(contexto)
 
-    salida = os.path.join("/tmp", f'{contexto["numero_cotizacion"]}.docx')
-    doc.save(salida)
-    return salida
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    doc.save(tmp.name)
+    tmp.close()
+    return tmp.name
 
 
+# =========================================================
+# APP
+# =========================================================
 init_db()
 
 st.title("APP Área Comercial Buses y Vans")
+st.subheader("Generador de Cotización FOTON U9")
+
 tab1, tab2 = st.tabs(["Nueva cotización", "Historial"])
 
 with tab1:
@@ -162,7 +189,7 @@ with tab1:
 
     with col1:
         fecha = st.date_input("Fecha", value=date.today())
-        cliente = st.text_input("Cliente")
+        cliente = st.text_input("Cliente", value="")
         cotizante = st.selectbox("Cotizante", list(COTIZANTES.keys()))
 
     with col2:
@@ -191,7 +218,7 @@ with tab1:
 
     if st.button("Generar cotización", use_container_width=True):
         if not cliente.strip():
-            st.error("Debes ingresar el cliente.")
+            st.error("Debes ingresar el nombre del cliente.")
         else:
             datos_firma = COTIZANTES[cotizante]
             correlativo = siguiente_correlativo(cotizante)
@@ -233,6 +260,9 @@ with tab1:
                     contenido = f.read()
 
                 st.success(f"Cotización {numero_cotizacion} generada correctamente.")
+                st.write(f"**Cliente:** {cliente.strip()}")
+                st.write(f"**Cotizante:** {cotizante}")
+                st.write(f"**Precio unitario:** {usd_fmt(precio_unitario)}")
                 st.write(f"**Total negocio:** {usd_fmt(total_negocio)}")
 
                 st.download_button(
@@ -246,10 +276,15 @@ with tab1:
                 st.error(f"Error al generar la cotización: {e}")
 
 with tab2:
-    df = cargar_historial()
-    if df.empty:
-        st.info("Aún no hay cotizaciones registradas.")
-    else:
-        df["precio_unitario"] = df["precio_unitario"].apply(usd_fmt)
-        df["total_negocio"] = df["total_negocio"].apply(usd_fmt)
-        st.dataframe(df, use_container_width=True)
+    st.subheader("Historial de cotizaciones")
+
+    try:
+        df = cargar_historial()
+        if df.empty:
+            st.info("Aún no hay cotizaciones registradas.")
+        else:
+            df["precio_unitario"] = df["precio_unitario"].apply(usd_fmt)
+            df["total_negocio"] = df["total_negocio"].apply(usd_fmt)
+            st.dataframe(df, use_container_width=True)
+    except Exception as e:
+        st.error(f"No fue posible cargar el historial: {e}")

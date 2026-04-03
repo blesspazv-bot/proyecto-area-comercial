@@ -21,35 +21,35 @@ COTIZANTES = {
     "Diego Vejar": {
         "prefijo": "DV",
         "firma_nombre": "Diego Vejar",
-        "firma_cargo": "Subgerente Comercial Buses y Vans",
+        "firma_cargo": "Subgerente Comercial Buses y Vans (IVECO)",
         "firma_correo": "dvejar@andesmotor.cl",
         "firma_telefono": "981774604",
     },
     "Sergio Silva": {
         "prefijo": "SS",
         "firma_nombre": "Sergio Silva",
-        "firma_cargo": "Ejecutivo de ventas Zona Sur Buses y Vans",
+        "firma_cargo": "Ejecutivo de ventas Zona Sur Buses y Vans (IVECO)",
         "firma_correo": "sergio.silva@andesmotor.cl",
         "firma_telefono": "",
     },
     "Alvaro Correa": {
         "prefijo": "AC",
         "firma_nombre": "Alvaro Correa",
-        "firma_cargo": "Ejecutivo de ventas Zona Norte Buses y Vans",
+        "firma_cargo": "Ejecutivo de ventas Zona Norte Buses y Vans (IVECO)",
         "firma_correo": "alvaro.correa@andesmotor.cl",
         "firma_telefono": "",
     },
     "Fabian Orellana": {
         "prefijo": "FO",
         "firma_nombre": "Fabian Orellana",
-        "firma_cargo": "Product Manager Senior Buses y Vans",
+        "firma_cargo": "Product Manager Senior Buses y Vans (IVECO)",
         "firma_correo": "forellana@andesmotor.cl",
         "firma_telefono": "989356449",
     },
     "Rodrigo Sepulveda": {
         "prefijo": "RS",
         "firma_nombre": "Rodrigo Sepulveda",
-        "firma_cargo": "Gerente de Buses y Vans",
+        "firma_cargo": "Gerente de Buses y Vans (IVECO)",
         "firma_correo": "rsepulveda@andesmotor.cl",
         "firma_telefono": "979783254",
     },
@@ -72,7 +72,7 @@ def fecha_corta(fecha):
 
 
 def usd_fmt(valor):
-    return f"USD {valor:,.0f}".replace(",", ".")
+    return f"USD$ {valor:,.0f}".replace(",", ".")
 
 
 def clp_fmt(valor):
@@ -127,6 +127,16 @@ def semaforo_kwh(valor, objetivo):
     if valor <= objetivo * 1.10:
         return "🟡 Leve desvío"
     return "🔴 Sobre objetivo"
+
+
+def sugerir_columna(columnas, candidatos):
+    columnas_lower = {c.lower(): c for c in columnas}
+    for cand in candidatos:
+        for col_lower, col_real in columnas_lower.items():
+            if cand in col_lower:
+                return col_real
+    return None
+
 
 # =========================================================
 # BASE DE DATOS
@@ -184,7 +194,6 @@ def migrar_base_si_corresponde():
 
     columnas = get_columns(conn, "cotizaciones")
 
-    # Si ya está la estructura buena, solo agrega faltantes menores
     if "numero_cotizacion" in columnas:
         cur = conn.cursor()
         faltantes = {
@@ -206,17 +215,12 @@ def migrar_base_si_corresponde():
         conn.close()
         return
 
-    # Si existe una tabla vieja con columna "numero", la migramos
     if "numero" in columnas:
         cur = conn.cursor()
-
-        cur.execute("""
-            ALTER TABLE cotizaciones RENAME TO cotizaciones_old
-        """)
+        cur.execute("ALTER TABLE cotizaciones RENAME TO cotizaciones_old")
         conn.commit()
 
         crear_tabla_cotizaciones(conn)
-
         columnas_old = get_columns(conn, "cotizaciones_old")
 
         fecha_expr = "fecha" if "fecha" in columnas_old else "''"
@@ -250,7 +254,6 @@ def migrar_base_si_corresponde():
         conn.close()
         return
 
-    # Si la tabla es irreconocible, se recrea limpia
     cur = conn.cursor()
     cur.execute("DROP TABLE IF EXISTS cotizaciones")
     conn.commit()
@@ -266,7 +269,6 @@ def siguiente_correlativo(cotizante):
     prefijo = COTIZANTES[cotizante]["prefijo"]
     conn = get_conn()
     cur = conn.cursor()
-
     cur.execute("""
         SELECT MAX(correlativo)
         FROM cotizaciones
@@ -326,14 +328,14 @@ def cargar_historial():
     conn.close()
     return df
 
+
 # =========================================================
 # DOCX / PDF
 # =========================================================
 def generar_docx(contexto, nombre_salida):
     if not os.path.exists(TEMPLATE_FILE):
         raise FileNotFoundError(
-            f"No se encontró la plantilla '{TEMPLATE_FILE}'. "
-            f"Debes dejarla en la misma carpeta del proyecto."
+            f"No se encontró la plantilla '{TEMPLATE_FILE}'. Debes dejarla en la misma carpeta del proyecto."
         )
 
     doc = DocxTemplate(TEMPLATE_FILE)
@@ -379,6 +381,7 @@ def convertir_docx_a_pdf(docx_path):
 
     return pdf_path
 
+
 # =========================================================
 # EXCEL RESULTADOS
 # =========================================================
@@ -391,8 +394,8 @@ def exportar_resultados_excel(df_detalle, df_resumen, df_ruta=None):
             df_ruta.to_excel(writer, sheet_name="Mapa_Coordenadas", index=False)
 
     with open(tmp.name, "rb") as f:
-        data = f.read()
-    return data
+        return f.read()
+
 
 # =========================================================
 # APP
@@ -549,27 +552,211 @@ with tab_hist:
         st.error(f"No fue posible cargar el historial: {e}")
 
 # =========================================================
-# TAB 3 - EFICIENCIA
+# TAB 3 - EFICIENCIA ADAPTADA OSORNO
 # =========================================================
 with tab_efi:
     st.subheader("Eficiencia energética")
+    st.write("Sube una planilla Excel y selecciona las columnas. La app intentará sugerir automáticamente columnas parecidas al caso Osorno.")
 
     archivo = st.file_uploader("Subir Excel", type=["xlsx", "xls"], key="excel_efi")
 
     if archivo:
         try:
             df = leer_excel_seguro(archivo)
-            st.dataframe(df.head(), use_container_width=True)
+            st.dataframe(df.head(10), use_container_width=True)
 
-            col_kwh = st.selectbox("Columna energía", df.columns)
-            col_km = st.selectbox("Columna distancia", df.columns)
+            columnas = list(df.columns)
 
-            if st.button("Calcular", use_container_width=True):
-                df["kwh_km"] = pd.to_numeric(df[col_kwh], errors="coerce") / pd.to_numeric(df[col_km], errors="coerce")
-                df = df.dropna(subset=["kwh_km"])
+            sug_trazado = sugerir_columna(columnas, ["trazado", "ruta", "servicio"])
+            sug_odo = sugerir_columna(columnas, ["odometro", "odómetro", "odom", "km"])
+            sug_vel = sugerir_columna(columnas, ["velocidad", "speed"])
+            sug_soc = sugerir_columna(columnas, ["soc", "estado de carga", "carga"])
+            sug_alt = sugerir_columna(columnas, ["altura", "altitud", "elev"])
+            sug_lat = sugerir_columna(columnas, ["lat"])
+            sug_lon = sugerir_columna(columnas, ["lon", "lng", "long"])
 
-                st.metric("Consumo promedio", f"{df['kwh_km'].mean():.2f} kWh/km")
-                st.line_chart(df["kwh_km"])
+            st.markdown("### Mapeo de columnas")
+
+            m1, m2, m3 = st.columns(3)
+
+            with m1:
+                col_trazado = st.selectbox(
+                    "Columna trazado / ruta",
+                    columnas,
+                    index=columnas.index(sug_trazado) if sug_trazado in columnas else 0
+                )
+                col_odo = st.selectbox(
+                    "Columna odómetro / km acumulado",
+                    columnas,
+                    index=columnas.index(sug_odo) if sug_odo in columnas else 0
+                )
+
+            with m2:
+                col_vel = st.selectbox(
+                    "Columna velocidad",
+                    ["(No usar)"] + columnas,
+                    index=(["(No usar)"] + columnas).index(sug_vel) if sug_vel in columnas else 0
+                )
+                col_soc = st.selectbox(
+                    "Columna SoC / estado de carga",
+                    ["(No usar)"] + columnas,
+                    index=(["(No usar)"] + columnas).index(sug_soc) if sug_soc in columnas else 0
+                )
+
+            with m3:
+                col_alt = st.selectbox(
+                    "Columna altura / altitud",
+                    ["(No usar)"] + columnas,
+                    index=(["(No usar)"] + columnas).index(sug_alt) if sug_alt in columnas else 0
+                )
+                col_lat = st.selectbox(
+                    "Columna latitud",
+                    ["(No usar)"] + columnas,
+                    index=(["(No usar)"] + columnas).index(sug_lat) if sug_lat in columnas else 0
+                )
+                col_lon = st.selectbox(
+                    "Columna longitud",
+                    ["(No usar)"] + columnas,
+                    index=(["(No usar)"] + columnas).index(sug_lon) if sug_lon in columnas else 0
+                )
+
+            st.markdown("### Parámetros")
+
+            p1, p2, p3, p4 = st.columns(4)
+
+            with p1:
+                bateria_kwh = st.selectbox("Batería", [231.8, 255.0], index=1)
+            with p2:
+                reserva_pct = st.slider("Reserva batería (%)", 0, 30, 10)
+            with p3:
+                rendimiento_objetivo = st.number_input("Objetivo kWh/km", min_value=0.0, value=0.95, step=0.01, format="%.2f")
+            with p4:
+                energia_total_trazado = st.number_input("Energía total del trazado (kWh)", min_value=0.0, value=10.45, step=0.01)
+
+            if st.button("Calcular rendimiento", use_container_width=True):
+                trabajo = df.copy()
+                trabajo["trazado"] = trabajo[col_trazado].astype(str)
+                trabajo["odometro"] = pd.to_numeric(trabajo[col_odo], errors="coerce")
+
+                if col_vel != "(No usar)":
+                    trabajo["velocidad"] = pd.to_numeric(trabajo[col_vel], errors="coerce")
+                else:
+                    trabajo["velocidad"] = None
+
+                if col_soc != "(No usar)":
+                    trabajo["soc"] = pd.to_numeric(trabajo[col_soc], errors="coerce")
+                else:
+                    trabajo["soc"] = None
+
+                if col_alt != "(No usar)":
+                    trabajo["altitud"] = pd.to_numeric(trabajo[col_alt], errors="coerce")
+                else:
+                    trabajo["altitud"] = None
+
+                if col_lat != "(No usar)" and col_lon != "(No usar)":
+                    trabajo["lat"] = pd.to_numeric(trabajo[col_lat], errors="coerce")
+                    trabajo["lon"] = pd.to_numeric(trabajo[col_lon], errors="coerce")
+                else:
+                    trabajo["lat"] = None
+                    trabajo["lon"] = None
+
+                trabajo = trabajo.dropna(subset=["odometro"]).copy()
+
+                grupos = []
+                for _, g in trabajo.groupby("trazado", dropna=False):
+                    g = g.copy()
+                    g["distancia_parcial"] = g["odometro"].diff().abs().fillna(0)
+                    grupos.append(g)
+
+                trabajo = pd.concat(grupos, ignore_index=True)
+                distancia_total = trabajo["distancia_parcial"].sum()
+
+                if distancia_total <= 0:
+                    st.error("No fue posible calcular distancia. Revisa la columna de odómetro.")
+                else:
+                    capacidad_disponible = bateria_kwh * (1 - reserva_pct / 100)
+                    kwh_km = energia_total_trazado / distancia_total
+                    km_kwh = distancia_total / energia_total_trazado if energia_total_trazado > 0 else None
+                    autonomia = capacidad_disponible / kwh_km if kwh_km > 0 else None
+
+                    trabajo["kwh_km_ref"] = kwh_km
+
+                    st.markdown("### Indicadores principales")
+                    k1, k2, k3, k4 = st.columns(4)
+
+                    k1.metric("Rendimiento kWh/km", f"{kwh_km:.3f}")
+                    k2.metric("Autonomía proyectada", f"{autonomia:.0f} km" if autonomia else "Sin dato")
+                    k3.metric("Kms recorridos", f"{distancia_total:.1f} km")
+                    k4.metric(
+                        "Velocidad promedio",
+                        f"{trabajo['velocidad'].mean():.1f} km/h" if col_vel != "(No usar)" and trabajo["velocidad"].notna().any() else "Sin dato"
+                    )
+
+                    trazados = sorted(trabajo["trazado"].dropna().unique().tolist())
+                    trazado_sel = st.selectbox("Trazado a visualizar", trazados)
+                    vista = trabajo[trabajo["trazado"] == trazado_sel].copy()
+
+                    g1, g2 = st.columns([1.1, 1])
+
+                    with g1:
+                        st.markdown("### Velocidad / SoC sobre odómetro")
+                        df_chart = pd.DataFrame(index=vista["odometro"])
+                        if col_vel != "(No usar)" and vista["velocidad"].notna().any():
+                            df_chart["Velocidad"] = vista["velocidad"]
+                        if col_soc != "(No usar)" and vista["soc"].notna().any():
+                            df_chart["SoC"] = vista["soc"]
+                        if not df_chart.empty:
+                            st.line_chart(df_chart)
+                        else:
+                            st.info("No hay columnas de velocidad o SoC válidas para graficar.")
+
+                    with g2:
+                        st.markdown("### Trazado")
+                        if col_lat != "(No usar)" and col_lon != "(No usar)":
+                            mapa = vista.dropna(subset=["lat", "lon"]).copy()
+                            if not mapa.empty:
+                                st.map(mapa.rename(columns={"lat": "latitude", "lon": "longitude"})[["latitude", "longitude"]])
+                            else:
+                                st.info("No hay coordenadas válidas para el trazado seleccionado.")
+                        else:
+                            st.info("Selecciona latitud y longitud para mostrar el mapa.")
+
+                    if col_alt != "(No usar)" and vista["altitud"].notna().any():
+                        st.markdown("### Perfil de altura")
+                        st.area_chart(pd.DataFrame({"Altura (m)": vista["altitud"].values}, index=vista["odometro"].values))
+
+                    st.markdown("### Resumen por trazado")
+                    resumen = trabajo.groupby("trazado", dropna=False).agg(
+                        odometro_inicial=("odometro", "min"),
+                        odometro_final=("odometro", "max"),
+                        kms_recorridos=("distancia_parcial", "sum"),
+                        velocidad_promedio=("velocidad", "mean") if col_vel != "(No usar)" else ("odometro", "count")
+                    ).reset_index()
+
+                    if col_vel == "(No usar)":
+                        resumen = resumen.drop(columns=["velocidad_promedio"])
+
+                    resumen["kwh_km"] = kwh_km
+                    resumen["km_kwh"] = km_kwh if km_kwh is not None else 0
+                    resumen["autonomia_proyectada_km"] = autonomia if autonomia is not None else 0
+                    resumen["semaforo"] = resumen["kwh_km"].apply(lambda x: semaforo_kwh(x, rendimiento_objetivo))
+
+                    st.dataframe(resumen, use_container_width=True)
+
+                    detalle = trabajo.copy()
+
+                    export_excel = exportar_resultados_excel(
+                        detalle,
+                        resumen,
+                        trabajo[["trazado", "lat", "lon"]].dropna() if "lat" in trabajo.columns and "lon" in trabajo.columns else None
+                    )
+
+                    st.download_button(
+                        "Descargar resultados Excel",
+                        data=export_excel,
+                        file_name=f"Rendimiento_energetico_{fecha_corta(date.today())}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")

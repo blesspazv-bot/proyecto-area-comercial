@@ -1,169 +1,156 @@
 import io
 from datetime import date
-
 import streamlit as st
 from docx import Document
 
 st.set_page_config(page_title="APP Área Comercial Buses y Vans", layout="wide")
 
+# ================================
+# CONFIG COTIZANTES
+# ================================
 COTIZANTES = {
-    "Diego Vejar": "DV",
-    "Sergio Silva": "SS",
-    "Alvaro Correa": "AC",
-    "Fabian Orellana": "FO",
-    "Rodrigo Sepulveda": "RS",
-}
-
-FIRMAS = {
     "Diego Vejar": {
-        "nombre": "Diego Vejar",
-        "cargo": "Ejecutivo Comercial",
-        "correo": "",
-        "telefono": ""
+        "prefijo": "DV",
+        "cargo": "Subgerente Comercial Buses y Vans",
+        "correo": "dvejar@andesmotor.cl",
+        "telefono": "981774604"
     },
     "Sergio Silva": {
-        "nombre": "Sergio Silva",
-        "cargo": "Ejecutivo Comercial",
-        "correo": "",
+        "prefijo": "SS",
+        "cargo": "Ejecutivo de ventas Zona Sur Buses y Vans",
+        "correo": "sergio.silva@andesmotor.cl",
         "telefono": ""
     },
     "Alvaro Correa": {
-        "nombre": "Alvaro Correa",
-        "cargo": "Ejecutivo Comercial",
-        "correo": "",
+        "prefijo": "AC",
+        "cargo": "Ejecutivo de ventas Zona Norte Buses y Vans",
+        "correo": "alvaro.correa@andesmotor.cl",
         "telefono": ""
     },
     "Fabian Orellana": {
-        "nombre": "Fabian Orellana",
-        "cargo": "Ejecutivo Comercial",
-        "correo": "",
-        "telefono": ""
+        "prefijo": "FO",
+        "cargo": "Product Manager Senior Zona Buses y Vans",
+        "correo": "forellana@andesmotor.cl",
+        "telefono": "989356449"
     },
     "Rodrigo Sepulveda": {
-        "nombre": "Rodrigo Sepulveda Toepfer",
-        "cargo": "Gerente de Buses y Vans (Iveco)",
+        "prefijo": "RS",
+        "cargo": "Gerente de Buses y Vans",
         "correo": "rsepulveda@andesmotor.cl",
-        "telefono": "227202221 / 979783254"
+        "telefono": "979783254"
     },
 }
 
-TEMPLATE_PATH = "Propuesta_FOTON_Electrico_U9.docx"
+TEMPLATE = "Propuesta_FOTON_Electrico_U9.docx"
 
+# ================================
+# FUNCIONES
+# ================================
+def fecha_larga(fecha):
+    meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]
+    dias = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"]
+    return f"Santiago, {dias[fecha.weekday()]} {fecha.day} de {meses[fecha.month-1]} de {fecha.year}"
 
-def format_usd(valor: float) -> str:
+def formato_usd(valor):
     return f"USD$ {valor:,.0f}".replace(",", ".")
 
-
-def numero_cotizacion(cotizante: str, correlativo: int) -> str:
-    prefijo = COTIZANTES[cotizante]
-    return f"{prefijo}-{correlativo:02d}"
-
-
-def reemplazar_en_parrafo(paragraph, reemplazos):
-    texto = "".join(run.text for run in paragraph.runs)
-    nuevo = texto
-    for k, v in reemplazos.items():
-        nuevo = nuevo.replace(k, v)
-    if nuevo != texto:
-        if paragraph.runs:
-            paragraph.runs[0].text = nuevo
-            for run in paragraph.runs[1:]:
-                run.text = ""
-        else:
-            paragraph.add_run(nuevo)
-
-
-def reemplazar_en_doc(doc, reemplazos):
+def reemplazar(doc, dic):
     for p in doc.paragraphs:
-        reemplazar_en_parrafo(p, reemplazos)
+        for k, v in dic.items():
+            if k in p.text:
+                p.text = p.text.replace(k, v)
 
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    reemplazar_en_parrafo(p, reemplazos)
+    for t in doc.tables:
+        for r in t.rows:
+            for c in r.cells:
+                for p in c.paragraphs:
+                    for k, v in dic.items():
+                        if k in p.text:
+                            p.text = p.text.replace(k, v)
 
-
-def generar_docx(datos):
-    doc = Document(TEMPLATE_PATH)
-
-    firma = FIRMAS[datos["cotizante"]]
+def generar_docx(data):
+    doc = Document(TEMPLATE)
 
     reemplazos = {
-        "Santiago, miércoles 17 de diciembre de 2025": datos["fecha"],
-        "Cotización n° RS-03": f'Cotización n° {datos["numero_cotizacion"]}',
-        "Conecta": datos["cliente"],
-        "1 Buses Eléctricos, Marca FOTON, Modelo U9 de carrocería monocasco Urbano estándar RED, año 2026.": (
-            f'{datos["cantidad_unidades"]} Buses Eléctricos, Marca FOTON, Modelo U9 de carrocería monocasco Urbano estándar RED, año 2026.'
-        ),
-        "· Valor unitario por bus: USD$  130.491.-  + IVA.": (
-            f'· Valor unitario por bus: {datos["monto"]} + IVA.'
-        ),
-        "· Valor cuota flota por unidad: . + IVA por 96 meses, con una tasa leasing de %.": (
-            f'· Valor total negocio: {datos["total_negocio"]} + IVA.'
-        ),
-        "48 meses": datos["contrato_mantto"],
-        "Rodrigo Sepúlveda Toepfer": firma["nombre"],
-        "Gerente de Buses y Vans (Iveco)": firma["cargo"],
-        "rsepulveda@andesmotor.cl": firma["correo"],
-        "T: 227202221": f'T: {firma["telefono"]}' if firma["telefono"] else "T:",
+        "Santiago, miércoles 17 de diciembre de 2025": data["fecha"],
+        "Cotización n° RS-03": f'Cotización n° {data["numero"]}',
+        "Conecta": data["cliente"],
+        "USD$  130.491.-": data["precio"],
+        "1 Buses Eléctricos": f'{data["cantidad"]} Buses Eléctricos',
+        "48 meses": data["mantto"],
+        "Rodrigo Sepúlveda Toepfer": data["nombre"],
+        "Gerente de Buses y Vans (Iveco)": data["cargo"],
+        "rsepulveda@andesmotor.cl": data["correo"],
+        "M: 979783254": f'M: {data["telefono"]}'
     }
 
-    reemplazar_en_doc(doc, reemplazos)
+    reemplazar(doc, reemplazos)
 
-    salida = io.BytesIO()
-    doc.save(salida)
-    salida.seek(0)
-    return salida
+    # Reemplazo bloque mantenimiento completo
+    for p in doc.paragraphs:
+        if "La oferta incluye 48 meses" in p.text:
+            p.text = data["texto_mantto"]
 
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output
 
-st.title("APP Área Comercial Buses y Vans")
-st.subheader("Generador de Cotización FOTON U9")
+# ================================
+# UI
+# ================================
+st.title("Generador Cotización FOTON U9")
 
-with st.form("form_cotizacion"):
-    col1, col2 = st.columns(2)
+col1, col2 = st.columns(2)
 
-    with col1:
-        fecha = st.date_input("Fecha", value=date.today())
-        cliente = st.text_input("Cliente")
-        cotizante = st.selectbox("Cotizante", list(COTIZANTES.keys()))
-        correlativo = st.number_input("Correlativo", min_value=1, value=1, step=1)
+with col1:
+    cliente = st.text_input("Cliente", value="Juan Perez")
+    fecha = st.date_input("Fecha", value=date.today())
+    cotizante = st.selectbox("Cotizante", list(COTIZANTES.keys()))
+    correlativo = st.number_input("Correlativo", value=1)
 
-    with col2:
-        monto = st.number_input("Monto unitario USD", min_value=0.0, value=130491.0, step=1000.0)
-        contrato_mantto = st.text_input("Contrato mantto", value="48 meses")
-        cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
+with col2:
+    precio = st.number_input("Precio unitario USD", value=130491)
+    cantidad = st.number_input("Cantidad unidades", value=1)
+    mantto = st.text_input("Contrato mantto", value="48 meses")
 
-    total_negocio = monto * cantidad_unidades
+texto_mantto = st.text_area(
+    "Texto mantenimiento (editable)",
+    """I. La oferta incluye 48 meses de mantenimiento preventivo y correctivo...
+II. Adicionalmente se entregarán USD 1.500...
+III. La oferta incluye 8 años de telemetría sin costo para el cliente."""
+)
 
-    submitted = st.form_submit_button("Generar cotización")
+# ================================
+# LOGICA
+# ================================
+data_cot = COTIZANTES[cotizante]
+numero = f'{data_cot["prefijo"]}-{int(correlativo):02d}'
 
-if submitted:
-    try:
-        num_cot = numero_cotizacion(cotizante, correlativo)
+st.write("### Vista previa")
+st.write("Número:", numero)
+st.write("Total:", formato_usd(precio * cantidad))
 
-        datos = {
-            "fecha": fecha.strftime("%d-%m-%Y"),
-            "cliente": cliente.strip() if cliente.strip() else "Cliente",
-            "cotizante": cotizante,
-            "numero_cotizacion": num_cot,
-            "monto": format_usd(monto),
-            "contrato_mantto": contrato_mantto,
-            "cantidad_unidades": str(cantidad_unidades),
-            "total_negocio": format_usd(total_negocio),
-        }
+if st.button("Generar cotización"):
 
-        archivo = generar_docx(datos)
+    data = {
+        "fecha": fecha_larga(fecha),
+        "cliente": cliente,
+        "numero": numero,
+        "precio": formato_usd(precio),
+        "cantidad": cantidad,
+        "mantto": mantto,
+        "texto_mantto": texto_mantto,
+        "nombre": cotizante,
+        "cargo": data_cot["cargo"],
+        "correo": data_cot["correo"],
+        "telefono": data_cot["telefono"]
+    }
 
-        st.success(f"Cotización {num_cot} generada correctamente.")
-        st.write(f"Total negocio: {format_usd(total_negocio)}")
+    archivo = generar_docx(data)
 
-        st.download_button(
-            label="Descargar cotización Word",
-            data=archivo,
-            file_name=f"Cotizacion_{num_cot}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-    except Exception as e:
-        st.error(f"Error al generar la cotización: {e}")
+    st.download_button(
+        "Descargar Cotización",
+        archivo,
+        file_name=f"Cotizacion_{numero}.docx"
+    )

@@ -221,4 +221,3 @@ with tab3:
             st.metric("Consumo promedio", f"{df['kwh_km'].mean():.2f} kWh/km")
 
             st.line_chart(df["kwh_km"])pip install streamlit pandas docxtpl python-docx openpyxl
-sudo apt-get install -y libreoffice

@@ -103,7 +103,6 @@ def formatear_texto_mantto(texto):
 
 
 def detectar_motor_excel(uploaded_file):
-    """Selecciona engine según extensión del archivo."""
     nombre = uploaded_file.name.lower()
     if nombre.endswith(".xlsx"):
         return "openpyxl"
@@ -227,7 +226,6 @@ def guardar_cotizacion(data):
 
 def cargar_historial():
     conn = get_conn()
-    # Evita error si la base es antigua y aún no tiene alguna columna
     query = """
         SELECT
             fecha,
@@ -289,12 +287,10 @@ init_db()
 
 st.title("APP Área Comercial Buses y Vans")
 
-# Mensajes de ayuda rápidos
 with st.expander("Notas de uso"):
     st.write("- Si el historial falla por una base antigua, esta versión intenta migrar columnas automáticamente.")
     st.write("- Para archivos .xlsx debe estar instalado openpyxl en el entorno.")
     st.write("- La pestaña de rendimiento permite mapear las columnas reales del Excel.")
-
 
 tab_cot, tab_hist, tab_efi = st.tabs([
     "Nueva cotización",
@@ -542,16 +538,13 @@ with tab_efi:
 
                 trabajo = trabajo.dropna(subset=["energia_kwh", "distancia_base"])
 
-                # Si la columna elegida es odómetro, convierte a distancia por diferencia dentro de cada trazado.
                 distancias_por_ruta = []
                 for _, grupo in trabajo.groupby("ruta_servicio", dropna=False):
                     grupo = grupo.copy()
                     grupo["distancia_km"] = grupo["distancia_base"].diff().abs()
-                    # si era distancia directa, los diff quedan pequeños; tomamos el valor original cuando no convenga
                     if grupo["distancia_km"].fillna(0).sum() <= 0:
                         grupo["distancia_km"] = grupo["distancia_base"]
                     else:
-                        # primera fila del grupo
                         grupo["distancia_km"] = grupo["distancia_km"].fillna(0)
                     distancias_por_ruta.append(grupo)
 
@@ -590,16 +583,16 @@ with tab_efi:
                     vista = trabajo[trabajo["ruta_servicio"] == trazado_sel].copy()
 
                     ctop1, ctop2 = st.columns([1.1, 1])
+
                     with ctop1:
                         st.markdown("### Velocidad y consumo")
                         graf = vista.copy()
                         eje_x = graf["distancia_base"] if "distancia_base" in graf.columns else graf.index
-                        st.line_chart(
-                            pd.DataFrame({
-                                "Velocidad": graf["velocidad_prom"] if col_velocidad != "(No usar)" else pd.Series(dtype=float),
-                                "SoC/Consumo ref": graf["kwh_km"]
-                            }, index=eje_x)
-                        )
+                        df_chart = pd.DataFrame(index=eje_x)
+                        if col_velocidad != "(No usar)":
+                            df_chart["Velocidad"] = graf["velocidad_prom"]
+                        df_chart["Consumo kWh/km"] = graf["kwh_km"]
+                        st.line_chart(df_chart)
 
                     with ctop2:
                         if col_lat != "(No usar)" and col_lon != "(No usar)":
@@ -613,6 +606,7 @@ with tab_efi:
                             st.info("Para mostrar mapa debes seleccionar latitud y longitud.")
 
                     cb1, cb2 = st.columns(2)
+
                     with cb1:
                         st.markdown("### Detalle calculado")
                         columnas_detalle = [

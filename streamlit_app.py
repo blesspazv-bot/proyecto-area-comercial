@@ -6,6 +6,7 @@ import shutil
 import base64
 from datetime import date
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 from docxtpl import DocxTemplate, RichText
@@ -129,9 +130,9 @@ def fecha_corta(fecha):
 
 def usd_fmt(valor):
     try:
-        return f"USD$ {valor:,.0f}".replace(",", ".")
+        return f"USD {valor:,.0f}".replace(",", ".")
     except Exception:
-        return "USD$ 0"
+        return "USD 0"
 
 
 def clp_fmt(valor):
@@ -871,26 +872,104 @@ with tab_dash:
 
     try:
         df_dash = cargar_historial()
+
         if df_dash.empty:
             st.info("No hay datos aún.")
         else:
             df_dash["total_negocio"] = pd.to_numeric(df_dash["total_negocio"], errors="coerce").fillna(0)
             df_dash["precio_unitario"] = pd.to_numeric(df_dash["precio_unitario"], errors="coerce").fillna(0)
+            df_dash["cantidad_unidades"] = pd.to_numeric(df_dash["cantidad_unidades"], errors="coerce").fillna(0)
+
+            # fecha para gráficos
+            df_dash["fecha_dt"] = pd.to_datetime(df_dash["fecha"], errors="coerce")
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Total cotizaciones", len(df_dash))
-            c2.metric("Monto total USD", usd_fmt(df_dash["total_negocio"].sum()))
+            c2.metric("Monto total negocio", usd_fmt(df_dash["total_negocio"].sum()))
             c3.metric("Promedio por cotización", usd_fmt(df_dash["total_negocio"].mean()))
 
-            st.markdown("### Cotizaciones por ejecutivo")
-            resumen_ej = df_dash.groupby("cotizante", dropna=False)["total_negocio"].sum().reset_index()
-            st.bar_chart(resumen_ej.set_index("cotizante"))
+            st.markdown("### Evolución del precio unitario")
+            df_precio = df_dash.dropna(subset=["fecha_dt"]).sort_values("fecha_dt")
+
+            graf_precio = alt.Chart(df_precio).mark_line(point=True).encode(
+                x=alt.X("fecha_dt:T", title="Fecha"),
+                y=alt.Y("precio_unitario:Q", title="Precio unitario (USD)"),
+                tooltip=["fecha", "cliente", "cotizante", "precio_unitario"]
+            ).properties(height=320)
+
+            st.altair_chart(graf_precio, use_container_width=True)
+
+            st.markdown("### Evolución del total negocio")
+            graf_total = alt.Chart(df_precio).mark_bar().encode(
+                x=alt.X("fecha_dt:T", title="Fecha"),
+                y=alt.Y("total_negocio:Q", title="Total negocio (USD)"),
+                color=alt.Color("cotizante:N", title="Cotizante"),
+                tooltip=["fecha", "cliente", "cotizante", "total_negocio"]
+            ).properties(height=320)
+
+            st.altair_chart(graf_total, use_container_width=True)
+
+            st.markdown("### Precio unitario promedio por ejecutivo")
+            resumen_ej_precio = (
+                df_dash.groupby("cotizante", dropna=False)["precio_unitario"]
+                .mean()
+                .reset_index()
+            )
+
+            graf_precio_ej = alt.Chart(resumen_ej_precio).mark_bar().encode(
+                x=alt.X("cotizante:N", title="Cotizante", sort="-y"),
+                y=alt.Y("precio_unitario:Q", title="Precio unitario promedio (USD)"),
+                tooltip=["cotizante", "precio_unitario"]
+            ).properties(height=320)
+
+            st.altair_chart(graf_precio_ej, use_container_width=True)
+
+            st.markdown("### Total negocio por ejecutivo")
+            resumen_ej_total = (
+                df_dash.groupby("cotizante", dropna=False)["total_negocio"]
+                .sum()
+                .reset_index()
+            )
+
+            graf_total_ej = alt.Chart(resumen_ej_total).mark_bar().encode(
+                x=alt.X("cotizante:N", title="Cotizante", sort="-y"),
+                y=alt.Y("total_negocio:Q", title="Total negocio acumulado (USD)"),
+                tooltip=["cotizante", "total_negocio"]
+            ).properties(height=320)
+
+            st.altair_chart(graf_total_ej, use_container_width=True)
+
+            st.markdown("### Relación entre precio unitario y total negocio")
+            graf_scatter = alt.Chart(df_dash).mark_circle(size=120).encode(
+                x=alt.X("precio_unitario:Q", title="Precio unitario (USD)"),
+                y=alt.Y("total_negocio:Q", title="Total negocio (USD)"),
+                color=alt.Color("cotizante:N", title="Cotizante"),
+                size=alt.Size("cantidad_unidades:Q", title="Cantidad unidades"),
+                tooltip=["cliente", "cotizante", "cantidad_unidades", "precio_unitario", "total_negocio"]
+            ).properties(height=350)
+
+            st.altair_chart(graf_scatter, use_container_width=True)
 
             st.markdown("### Detalle")
             df_dash_vista = df_dash.copy()
             df_dash_vista["precio_unitario"] = df_dash_vista["precio_unitario"].apply(usd_fmt)
             df_dash_vista["total_negocio"] = df_dash_vista["total_negocio"].apply(usd_fmt)
-            st.dataframe(df_dash_vista, use_container_width=True)
+            st.dataframe(
+                df_dash_vista[
+                    [
+                        "fecha",
+                        "cliente",
+                        "cotizante",
+                        "numero_cotizacion",
+                        "cantidad_unidades",
+                        "precio_unitario",
+                        "total_negocio",
+                        "capacidad_bateria",
+                        "creado_en",
+                    ]
+                ],
+                use_container_width=True
+            )
 
     except Exception as e:
         st.error(f"Error dashboard: {e}")

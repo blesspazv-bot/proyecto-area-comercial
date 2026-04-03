@@ -4,18 +4,18 @@ import tempfile
 import subprocess
 import shutil
 import base64
-from datetime import date
+from datetime import date, datetime
 
-import altair as alt
 import pandas as pd
 import streamlit as st
+import altair as alt
 from docxtpl import DocxTemplate, RichText
 
 # =========================================================
 # CONFIGURACION GENERAL
 # =========================================================
 st.set_page_config(
-    page_title="Gestión Área Comercial Buses y Vans",
+    page_title="APP Área Comercial Buses y Vans",
     page_icon="🚌",
     layout="wide"
 )
@@ -77,11 +77,12 @@ COTIZANTES = {
 }
 
 # =========================================================
-# ESTILO / LOGO FONDO
+# ESTILO / LOGO CENTRAL TENUE
 # =========================================================
-def agregar_logo_fondo(ruta_logo: str):
+def agregar_logo_central_tenue(ruta_logo: str):
     if not os.path.exists(ruta_logo):
         return
+
     with open(ruta_logo, "rb") as f:
         logo_base64 = base64.b64encode(f.read()).decode()
 
@@ -91,17 +92,15 @@ def agregar_logo_fondo(ruta_logo: str):
         .stApp {{
             background-image: url("data:image/png;base64,{logo_base64}");
             background-repeat: no-repeat;
-            background-position: center;
-            background-size: 460px;
+            background-position: center 62%;
+            background-size: 360px;
             background-attachment: fixed;
         }}
+
         .stApp::before {{
             content: "";
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            inset: 0;
             background: rgba(255,255,255,0.93);
             z-index: -1;
         }}
@@ -110,7 +109,7 @@ def agregar_logo_fondo(ruta_logo: str):
         unsafe_allow_html=True
     )
 
-agregar_logo_fondo(LOGO_FILE)
+agregar_logo_central_tenue(LOGO_FILE)
 
 # =========================================================
 # UTILIDADES GENERALES
@@ -419,7 +418,6 @@ def convertir_docx_a_pdf(docx_path):
         raise RuntimeError("LibreOffice no está instalado en el entorno.")
 
     output_dir = os.path.dirname(docx_path)
-
     comando = [
         soffice_path,
         "--headless",
@@ -463,9 +461,11 @@ if "usuario" not in st.session_state:
 
 if st.session_state.usuario is None:
     c1, c2, c3 = st.columns([1, 2, 1])
+
     with c2:
         if os.path.exists(LOGO_FILE):
             st.image(LOGO_FILE, width=180)
+
         st.title("Ingreso Área Comercial")
         user = st.text_input("Usuario")
         login_btn = st.button("Ingresar", use_container_width=True)
@@ -476,6 +476,7 @@ if st.session_state.usuario is None:
                 st.rerun()
             else:
                 st.error("Usuario no válido")
+
     st.stop()
 
 usuario_actual = USUARIOS[st.session_state.usuario]["nombre"]
@@ -485,20 +486,24 @@ usuario_actual = USUARIOS[st.session_state.usuario]["nombre"]
 # =========================================================
 init_db()
 
-if os.path.exists(LOGO_FILE):
-    h1, h2 = st.columns([1, 6])
-    with h1:
-        st.image(LOGO_FILE, width=120)
-    with h2:
-        st.markdown(
-            """
-            <h1 style='margin-bottom:0;'>Gestión Área Comercial Buses y Vans</h1>
+header1, header2 = st.columns([1.2, 6])
+
+with header1:
+    if os.path.exists(LOGO_FILE):
+        st.image(LOGO_FILE, width=180)
+
+with header2:
+    st.markdown(
+        """
+        <div style="padding-top: 8px;">
+            <h1 style='margin-bottom:0;'>APP Área Comercial Buses y Vans</h1>
             <p style='margin-top:0;color:gray;'>Andes Motor - Plataforma Comercial</p>
-            """,
-            unsafe_allow_html=True
-        )
-else:
-    st.title("APP Área Comercial Buses y Vans")
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+st.markdown("---")
 
 st.sidebar.success(f"Usuario: {usuario_actual}")
 if st.sidebar.button("Cerrar sesión"):
@@ -529,7 +534,7 @@ with tab_cot:
 
     with c2:
         cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
-        precio_unitario = st.number_input("Precio USD", min_value=0.0, value=130491.0, step=1000.0)
+        precio_unitario = st.number_input("Precio unitario USD", min_value=0.0, value=130491.0, step=1000.0)
         contrato_mantto = st.text_input("Contrato mantto", value="48 meses")
 
     capacidad_bateria = st.selectbox(
@@ -879,8 +884,6 @@ with tab_dash:
             df_dash["total_negocio"] = pd.to_numeric(df_dash["total_negocio"], errors="coerce").fillna(0)
             df_dash["precio_unitario"] = pd.to_numeric(df_dash["precio_unitario"], errors="coerce").fillna(0)
             df_dash["cantidad_unidades"] = pd.to_numeric(df_dash["cantidad_unidades"], errors="coerce").fillna(0)
-
-            # fecha para gráficos
             df_dash["fecha_dt"] = pd.to_datetime(df_dash["fecha"], errors="coerce")
 
             c1, c2, c3 = st.columns(3)
@@ -954,6 +957,7 @@ with tab_dash:
             df_dash_vista = df_dash.copy()
             df_dash_vista["precio_unitario"] = df_dash_vista["precio_unitario"].apply(usd_fmt)
             df_dash_vista["total_negocio"] = df_dash_vista["total_negocio"].apply(usd_fmt)
+
             st.dataframe(
                 df_dash_vista[
                     [

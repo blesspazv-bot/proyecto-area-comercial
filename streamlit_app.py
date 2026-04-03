@@ -15,7 +15,7 @@ from docxtpl import DocxTemplate, RichText
 # CONFIGURACION GENERAL
 # =========================================================
 st.set_page_config(
-    page_title="Gestion Área Comercial Buses y Vans",
+    page_title="Gestión Área Comercial Buses y Vans",
     page_icon="🚌",
     layout="wide"
 )
@@ -492,7 +492,7 @@ if os.path.exists(LOGO_FILE):
     with h2:
         st.markdown(
             """
-            <h1 style='margin-bottom:0;'>APP Área Comercial Buses y Vans</h1>
+            <h1 style='margin-bottom:0;'>Gestión Área Comercial Buses y Vans</h1>
             <p style='margin-top:0;color:gray;'>Andes Motor - Plataforma Comercial</p>
             """,
             unsafe_allow_html=True

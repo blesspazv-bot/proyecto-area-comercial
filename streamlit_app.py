@@ -15,7 +15,7 @@ from docxtpl import DocxTemplate, RichText
 # CONFIGURACION GENERAL
 # =========================================================
 st.set_page_config(
-    page_title="APP Área Comercial Buses y Vans",
+    page_title="Gestion Área Comercial Buses y Vans",
     page_icon="🚌",
     layout="wide"
 )

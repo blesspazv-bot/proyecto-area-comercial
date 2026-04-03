@@ -20,12 +20,11 @@ st.set_page_config(
     layout="wide"
 )
 
-TEMPLATE_FILE = "plantilla_cotizacion_foton_u9.docx"
 DB_FILE = "cotizaciones.db"
 LOGO_FILE = "logo_andes_motor.png"
 
 # =========================================================
-# USUARIOS LOGIN
+# LOGIN
 # =========================================================
 USUARIOS = {
     "dvejar": {"nombre": "Diego Vejar"},
@@ -36,7 +35,7 @@ USUARIOS = {
 }
 
 # =========================================================
-# COTIZANTES / FIRMAS
+# FIRMAS / COTIZANTES
 # =========================================================
 COTIZANTES = {
     "Diego Vejar": {
@@ -77,6 +76,37 @@ COTIZANTES = {
 }
 
 # =========================================================
+# MODELOS / PLANTILLAS
+# =========================================================
+MODELOS = {
+    "Foton U9": {
+        "tipo": "electrico",
+        "template": "plantilla_cotizacion_foton_u9.docx",
+        "capacidades": ["231,8 kWh", "255 kWh", "266 kWh"],
+    },
+    "Foton U10": {
+        "tipo": "electrico",
+        "template": "plantilla_cotizacion_foton_u10.docx",
+        "capacidades": ["266 kWh", "310 kWh"],
+    },
+    "Foton U12": {
+        "tipo": "electrico",
+        "template": "plantilla_cotizacion_foton_u12.docx",
+        "capacidades": ["247 kWh", "382 kWh"],
+    },
+    "Foton DU9": {
+        "tipo": "diesel",
+        "template": "plantilla_cotizacion_foton_du9.docx",
+        "capacidades": [],
+    },
+    "Foton DU10": {
+        "tipo": "diesel",
+        "template": "plantilla_cotizacion_foton_du10.docx",
+        "capacidades": [],
+    },
+}
+
+# =========================================================
 # ESTILO / LOGO CENTRAL TENUE
 # =========================================================
 def agregar_logo_central_tenue(ruta_logo: str):
@@ -92,8 +122,8 @@ def agregar_logo_central_tenue(ruta_logo: str):
         .stApp {{
             background-image: url("data:image/png;base64,{logo_base64}");
             background-repeat: no-repeat;
-            background-position: center 62%;
-            background-size: 360px;
+            background-position: center 64%;
+            background-size: 300px;
             background-attachment: fixed;
         }}
 
@@ -101,7 +131,7 @@ def agregar_logo_central_tenue(ruta_logo: str):
             content: "";
             position: fixed;
             inset: 0;
-            background: rgba(255,255,255,0.93);
+            background: rgba(255,255,255,0.965);
             z-index: -1;
         }}
         </style>
@@ -112,7 +142,7 @@ def agregar_logo_central_tenue(ruta_logo: str):
 agregar_logo_central_tenue(LOGO_FILE)
 
 # =========================================================
-# UTILIDADES GENERALES
+# UTILIDADES
 # =========================================================
 def fecha_larga_es(fecha):
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -199,6 +229,11 @@ def sugerir_columna(columnas, candidatos):
                 return col_real
     return None
 
+
+def obtener_template_por_modelo(modelo):
+    return MODELOS[modelo]["template"]
+
+
 # =========================================================
 # BASE DE DATOS
 # =========================================================
@@ -233,12 +268,14 @@ def crear_tabla_cotizaciones(conn):
             prefijo TEXT NOT NULL,
             correlativo INTEGER NOT NULL,
             numero_cotizacion TEXT NOT NULL UNIQUE,
+            modelo TEXT,
+            capacidad_bateria TEXT,
             cantidad_unidades INTEGER NOT NULL,
             precio_unitario REAL NOT NULL,
             total_negocio REAL NOT NULL,
+            lugar_entrega TEXT,
             contrato_mantto TEXT,
             texto_mantto TEXT,
-            capacidad_bateria TEXT,
             creado_en TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
@@ -254,21 +291,24 @@ def migrar_base_si_corresponde():
         return
 
     columnas = get_columns(conn, "cotizaciones")
+    cur = conn.cursor()
+
+    faltantes = {
+        "modelo": "TEXT",
+        "capacidad_bateria": "TEXT",
+        "lugar_entrega": "TEXT",
+        "contrato_mantto": "TEXT",
+        "texto_mantto": "TEXT",
+        "creado_en": "TEXT DEFAULT (datetime('now'))",
+        "fecha": "TEXT",
+        "prefijo": "TEXT",
+        "correlativo": "INTEGER",
+        "cantidad_unidades": "INTEGER DEFAULT 1",
+        "precio_unitario": "REAL DEFAULT 0",
+        "total_negocio": "REAL DEFAULT 0",
+    }
 
     if "numero_cotizacion" in columnas:
-        cur = conn.cursor()
-        faltantes = {
-            "contrato_mantto": "TEXT",
-            "texto_mantto": "TEXT",
-            "capacidad_bateria": "TEXT",
-            "creado_en": "TEXT DEFAULT (datetime('now'))",
-            "fecha": "TEXT",
-            "prefijo": "TEXT",
-            "correlativo": "INTEGER",
-            "cantidad_unidades": "INTEGER DEFAULT 1",
-            "precio_unitario": "REAL DEFAULT 0",
-            "total_negocio": "REAL DEFAULT 0"
-        }
         for col, tipo in faltantes.items():
             if col not in columnas:
                 cur.execute(f"ALTER TABLE cotizaciones ADD COLUMN {col} {tipo}")
@@ -277,11 +317,10 @@ def migrar_base_si_corresponde():
         return
 
     if "numero" in columnas:
-        cur = conn.cursor()
         cur.execute("ALTER TABLE cotizaciones RENAME TO cotizaciones_old")
         conn.commit()
-
         crear_tabla_cotizaciones(conn)
+
         columnas_old = get_columns(conn, "cotizaciones_old")
 
         fecha_expr = "fecha" if "fecha" in columnas_old else "''"
@@ -292,8 +331,8 @@ def migrar_base_si_corresponde():
         cur.execute(f"""
             INSERT INTO cotizaciones (
                 fecha, cliente, cotizante, prefijo, correlativo, numero_cotizacion,
-                cantidad_unidades, precio_unitario, total_negocio,
-                contrato_mantto, texto_mantto, capacidad_bateria, creado_en
+                modelo, capacidad_bateria, cantidad_unidades, precio_unitario, total_negocio,
+                lugar_entrega, contrato_mantto, texto_mantto, creado_en
             )
             SELECT
                 {fecha_expr},
@@ -302,6 +341,8 @@ def migrar_base_si_corresponde():
                 '',
                 0,
                 {numero_expr},
+                '',
+                '',
                 1,
                 0,
                 0,
@@ -315,7 +356,6 @@ def migrar_base_si_corresponde():
         conn.close()
         return
 
-    cur = conn.cursor()
     cur.execute("DROP TABLE IF EXISTS cotizaciones")
     conn.commit()
     crear_tabla_cotizaciones(conn)
@@ -331,14 +371,18 @@ def siguiente_correlativo(cotizante):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT MAX(correlativo)
+        SELECT correlativo
         FROM cotizaciones
         WHERE prefijo = ?
+        ORDER BY correlativo ASC
     """, (prefijo,))
-    row = cur.fetchone()
+    usados = [row[0] for row in cur.fetchall() if row[0] is not None]
     conn.close()
-    ultimo = row[0] if row and row[0] is not None else 0
-    return ultimo + 1
+
+    correlativo = 1
+    while correlativo in usados:
+        correlativo += 1
+    return correlativo
 
 
 def guardar_cotizacion(data):
@@ -347,10 +391,10 @@ def guardar_cotizacion(data):
     cur.execute("""
         INSERT INTO cotizaciones (
             fecha, cliente, cotizante, prefijo, correlativo, numero_cotizacion,
-            cantidad_unidades, precio_unitario, total_negocio,
-            contrato_mantto, texto_mantto, capacidad_bateria, creado_en
+            modelo, capacidad_bateria, cantidad_unidades, precio_unitario, total_negocio,
+            lugar_entrega, contrato_mantto, texto_mantto, creado_en
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     """, (
         data["fecha_iso"],
         data["cliente"],
@@ -358,12 +402,14 @@ def guardar_cotizacion(data):
         data["prefijo"],
         data["correlativo"],
         data["numero_cotizacion"],
+        data["modelo"],
+        data["capacidad_bateria"],
         data["cantidad_unidades"],
         data["precio_unitario_raw"],
         data["total_negocio_raw"],
+        data["lugar_entrega"],
         data["contrato_mantto"],
         data["texto_mantto"],
-        data["capacidad_bateria"],
     ))
     conn.commit()
     conn.close()
@@ -373,14 +419,17 @@ def cargar_historial():
     conn = get_conn()
     df = pd.read_sql_query("""
         SELECT
+            id,
             fecha,
             cliente,
             cotizante,
             numero_cotizacion,
+            modelo,
             cantidad_unidades,
             precio_unitario,
             total_negocio,
             COALESCE(capacidad_bateria, '') AS capacidad_bateria,
+            COALESCE(lugar_entrega, '') AS lugar_entrega,
             COALESCE(creado_en, '') AS creado_en
         FROM cotizaciones
         ORDER BY id DESC
@@ -388,16 +437,24 @@ def cargar_historial():
     conn.close()
     return df
 
+
+def eliminar_cotizacion_por_id(cotizacion_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM cotizaciones WHERE id = ?", (cotizacion_id,))
+    conn.commit()
+    conn.close()
+
 # =========================================================
 # DOCX / PDF
 # =========================================================
-def generar_docx(contexto, nombre_salida):
-    if not os.path.exists(TEMPLATE_FILE):
+def generar_docx(contexto, template_file, nombre_salida):
+    if not os.path.exists(template_file):
         raise FileNotFoundError(
-            f"No se encontró la plantilla '{TEMPLATE_FILE}'. Debes dejarla en la misma carpeta del proyecto."
+            f"No se encontró la plantilla '{template_file}'."
         )
 
-    doc = DocxTemplate(TEMPLATE_FILE)
+    doc = DocxTemplate(template_file)
     doc.render(contexto)
 
     tmp_dir = tempfile.mkdtemp()
@@ -461,11 +518,9 @@ if "usuario" not in st.session_state:
 
 if st.session_state.usuario is None:
     c1, c2, c3 = st.columns([1, 2, 1])
-
     with c2:
         if os.path.exists(LOGO_FILE):
             st.image(LOGO_FILE, width=180)
-
         st.title("Ingreso Área Comercial")
         user = st.text_input("Usuario")
         login_btn = st.button("Ingresar", use_container_width=True)
@@ -476,7 +531,6 @@ if st.session_state.usuario is None:
                 st.rerun()
             else:
                 st.error("Usuario no válido")
-
     st.stop()
 
 usuario_actual = USUARIOS[st.session_state.usuario]["nombre"]
@@ -521,9 +575,11 @@ tab_cot, tab_hist, tab_efi, tab_dash = st.tabs([
 # TAB 1 - COTIZACION
 # =========================================================
 with tab_cot:
-    st.subheader("Cotización FOTON U9")
+    st.subheader("Cotizaciones Foton")
 
     cotizante = usuario_actual
+    modelo = st.selectbox("Modelo", list(MODELOS.keys()))
+    modelo_info = MODELOS[modelo]
 
     c1, c2 = st.columns(2)
 
@@ -531,16 +587,17 @@ with tab_cot:
         fecha = st.date_input("Fecha", value=date.today())
         cliente = st.text_input("Cliente", value="")
         st.text_input("Cotizante", value=cotizante, disabled=True)
+        lugar_entrega = st.text_input("Lugar de entrega", value="")
 
     with c2:
         cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
         precio_unitario = st.number_input("Precio unitario USD", min_value=0.0, value=130491.0, step=1000.0)
         contrato_mantto = st.text_input("Contrato mantto", value="48 meses")
 
-    capacidad_bateria = st.selectbox(
-        "Capacidad nominal batería",
-        ["231,8 kWh", "255 kWh"]
-    )
+        if modelo_info["tipo"] == "electrico":
+            capacidad_bateria = st.selectbox("Capacidad nominal batería", modelo_info["capacidades"])
+        else:
+            capacidad_bateria = ""
 
     texto = st.text_area(
         "Texto mantenimiento",
@@ -559,15 +616,17 @@ III. Telemetría incluida""",
     if st.button("Generar cotización", use_container_width=True):
         if not cliente.strip():
             st.error("Debes ingresar el nombre del cliente.")
+        elif not lugar_entrega.strip():
+            st.error("Debes ingresar el lugar de entrega.")
         else:
             correlativo = siguiente_correlativo(cotizante)
             numero = f"{prefijo}-{correlativo:02d}"
             total_negocio = precio_unitario * cantidad_unidades
 
             nombre_archivo = (
-                f"Propuesta_foton_U9_"
+                f"Propuesta_{limpiar_nombre_archivo(modelo)}_"
                 f"{limpiar_nombre_archivo(cliente)}_"
-                f"{limpiar_nombre_archivo(capacidad_bateria)}_"
+                f"{limpiar_nombre_archivo(capacidad_bateria) if capacidad_bateria else 'diesel'}_"
                 f"{fecha_corta(fecha)}"
             )
 
@@ -584,6 +643,7 @@ III. Telemetría incluida""",
                 "firma_cargo": COTIZANTES[cotizante]["firma_cargo"],
                 "firma_correo": COTIZANTES[cotizante]["firma_correo"],
                 "firma_telefono": COTIZANTES[cotizante]["firma_telefono"],
+                "lugar_entrega": lugar_entrega.strip(),
             }
 
             registro = {
@@ -593,16 +653,19 @@ III. Telemetría incluida""",
                 "prefijo": prefijo,
                 "correlativo": correlativo,
                 "numero_cotizacion": numero,
+                "modelo": modelo,
+                "capacidad_bateria": capacidad_bateria,
                 "cantidad_unidades": int(cantidad_unidades),
                 "precio_unitario_raw": float(precio_unitario),
                 "total_negocio_raw": float(total_negocio),
+                "lugar_entrega": lugar_entrega.strip(),
                 "contrato_mantto": contrato_mantto,
                 "texto_mantto": texto,
-                "capacidad_bateria": capacidad_bateria,
             }
 
             try:
-                archivo_docx = generar_docx(contexto, nombre_archivo)
+                template_file = obtener_template_por_modelo(modelo)
+                archivo_docx = generar_docx(contexto, template_file, nombre_archivo)
                 guardar_cotizacion(registro)
 
                 with open(archivo_docx, "rb") as f:
@@ -612,6 +675,7 @@ III. Telemetría incluida""",
                 st.write(f"**Fecha:** {fecha_larga_es(fecha)}")
                 st.write(f"**Cliente:** {cliente}")
                 st.write(f"**Cotizante:** {cotizante}")
+                st.write(f"**Modelo:** {modelo}")
                 st.write(f"**Precio unitario:** {usd_fmt(precio_unitario)}")
                 st.write(f"**Total negocio:** {usd_fmt(total_negocio)}")
 
@@ -639,24 +703,43 @@ III. Telemetría incluida""",
                         )
 
                 except Exception as e_pdf:
-                    st.warning(f"Se generó el Word, pero no fue posible convertir a PDF: {e_pdf}")
+                    st.warning(
+                        "Se generó el Word, pero no fue posible convertir a PDF en este entorno. "
+                        f"Detalle: {e_pdf}"
+                    )
 
             except Exception as e:
                 st.error(f"Error al generar la cotización: {e}")
 
 # =========================================================
-# TAB 2 - HISTORIAL
+# TAB 2 - HISTORIAL / ELIMINAR
 # =========================================================
 with tab_hist:
     st.subheader("Historial")
+
     try:
         df_hist = cargar_historial()
         if df_hist.empty:
             st.info("Aún no hay cotizaciones registradas.")
         else:
-            df_hist["precio_unitario"] = df_hist["precio_unitario"].apply(usd_fmt)
-            df_hist["total_negocio"] = df_hist["total_negocio"].apply(usd_fmt)
-            st.dataframe(df_hist, use_container_width=True)
+            vista = df_hist.copy()
+            vista["precio_unitario"] = vista["precio_unitario"].apply(usd_fmt)
+            vista["total_negocio"] = vista["total_negocio"].apply(usd_fmt)
+            st.dataframe(vista, use_container_width=True)
+
+            st.markdown("### Eliminar cotización")
+            opciones = [
+                f"{row['id']} | {row['numero_cotizacion']} | {row['cliente']} | {row['modelo']}"
+                for _, row in df_hist.iterrows()
+            ]
+            seleccion = st.selectbox("Selecciona una cotización para eliminar", opciones)
+
+            if st.button("Eliminar cotización seleccionada", type="secondary"):
+                cotizacion_id = int(seleccion.split("|")[0].strip())
+                eliminar_cotizacion_por_id(cotizacion_id)
+                st.success("Cotización eliminada. El correlativo queda disponible nuevamente.")
+                st.rerun()
+
     except Exception as e:
         st.error(f"No fue posible cargar el historial: {e}")
 
@@ -665,7 +748,7 @@ with tab_hist:
 # =========================================================
 with tab_efi:
     st.subheader("Eficiencia energética")
-    st.write("Sube una planilla Excel y selecciona las columnas. La app intentará sugerir automáticamente columnas parecidas al caso Osorno.")
+    st.write("Sube una planilla Excel y selecciona las columnas.")
 
     archivo = st.file_uploader("Subir Excel", type=["xlsx", "xls"], key="excel_efi")
 
@@ -684,52 +767,20 @@ with tab_efi:
             sug_lat = sugerir_columna(columnas, ["lat"])
             sug_lon = sugerir_columna(columnas, ["lon", "lng", "long"])
 
-            st.markdown("### Mapeo de columnas")
-
             m1, m2, m3 = st.columns(3)
 
             with m1:
-                col_trazado = st.selectbox(
-                    "Columna trazado / ruta",
-                    columnas,
-                    index=columnas.index(sug_trazado) if sug_trazado in columnas else 0
-                )
-                col_odo = st.selectbox(
-                    "Columna odómetro / km acumulado",
-                    columnas,
-                    index=columnas.index(sug_odo) if sug_odo in columnas else 0
-                )
+                col_trazado = st.selectbox("Columna trazado / ruta", columnas, index=columnas.index(sug_trazado) if sug_trazado in columnas else 0)
+                col_odo = st.selectbox("Columna odómetro / km acumulado", columnas, index=columnas.index(sug_odo) if sug_odo in columnas else 0)
 
             with m2:
-                col_vel = st.selectbox(
-                    "Columna velocidad",
-                    ["(No usar)"] + columnas,
-                    index=(["(No usar)"] + columnas).index(sug_vel) if sug_vel in columnas else 0
-                )
-                col_soc = st.selectbox(
-                    "Columna SoC / estado de carga",
-                    ["(No usar)"] + columnas,
-                    index=(["(No usar)"] + columnas).index(sug_soc) if sug_soc in columnas else 0
-                )
+                col_vel = st.selectbox("Columna velocidad", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_vel) if sug_vel in columnas else 0)
+                col_soc = st.selectbox("Columna SoC / estado de carga", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_soc) if sug_soc in columnas else 0)
 
             with m3:
-                col_alt = st.selectbox(
-                    "Columna altura / altitud",
-                    ["(No usar)"] + columnas,
-                    index=(["(No usar)"] + columnas).index(sug_alt) if sug_alt in columnas else 0
-                )
-                col_lat = st.selectbox(
-                    "Columna latitud",
-                    ["(No usar)"] + columnas,
-                    index=(["(No usar)"] + columnas).index(sug_lat) if sug_lat in columnas else 0
-                )
-                col_lon = st.selectbox(
-                    "Columna longitud",
-                    ["(No usar)"] + columnas,
-                    index=(["(No usar)"] + columnas).index(sug_lon) if sug_lon in columnas else 0
-                )
-
-            st.markdown("### Parámetros")
+                col_alt = st.selectbox("Columna altura / altitud", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_alt) if sug_alt in columnas else 0)
+                col_lat = st.selectbox("Columna latitud", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_lat) if sug_lat in columnas else 0)
+                col_lon = st.selectbox("Columna longitud", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_lon) if sug_lon in columnas else 0)
 
             p1, p2, p3, p4 = st.columns(4)
 
@@ -785,12 +836,8 @@ with tab_efi:
                 else:
                     capacidad_disponible = bateria_kwh * (1 - reserva_pct / 100)
                     kwh_km = energia_total_trazado / distancia_total
-                    km_kwh = distancia_total / energia_total_trazado if energia_total_trazado > 0 else None
                     autonomia = capacidad_disponible / kwh_km if kwh_km > 0 else None
 
-                    trabajo["kwh_km_ref"] = kwh_km
-
-                    st.markdown("### Indicadores principales")
                     k1, k2, k3, k4 = st.columns(4)
                     k1.metric("Rendimiento kWh/km", f"{kwh_km:.3f}")
                     k2.metric("Autonomía proyectada", f"{autonomia:.0f} km" if autonomia else "Sin dato")
@@ -800,77 +847,11 @@ with tab_efi:
                         f"{trabajo['velocidad'].mean():.1f} km/h" if col_vel != "(No usar)" and trabajo["velocidad"].notna().any() else "Sin dato"
                     )
 
-                    trazados = sorted(trabajo["trazado"].dropna().unique().tolist())
-                    trazado_sel = st.selectbox("Trazado a visualizar", trazados)
-                    vista = trabajo[trabajo["trazado"] == trazado_sel].copy()
-
-                    g1, g2 = st.columns([1.1, 1])
-
-                    with g1:
-                        st.markdown("### Velocidad / SoC sobre odómetro")
-                        df_chart = pd.DataFrame(index=vista["odometro"])
-                        if col_vel != "(No usar)" and vista["velocidad"].notna().any():
-                            df_chart["Velocidad"] = vista["velocidad"]
-                        if col_soc != "(No usar)" and vista["soc"].notna().any():
-                            df_chart["SoC"] = vista["soc"]
-                        if not df_chart.empty:
-                            st.line_chart(df_chart)
-                        else:
-                            st.info("No hay columnas de velocidad o SoC válidas para graficar.")
-
-                    with g2:
-                        st.markdown("### Trazado")
-                        if col_lat != "(No usar)" and col_lon != "(No usar)":
-                            mapa = vista.dropna(subset=["lat", "lon"]).copy()
-                            if not mapa.empty:
-                                st.map(mapa.rename(columns={"lat": "latitude", "lon": "longitude"})[["latitude", "longitude"]])
-                            else:
-                                st.info("No hay coordenadas válidas para el trazado seleccionado.")
-                        else:
-                            st.info("Selecciona latitud y longitud para mostrar el mapa.")
-
-                    if col_alt != "(No usar)" and vista["altitud"].notna().any():
-                        st.markdown("### Perfil de altura")
-                        st.area_chart(pd.DataFrame({"Altura (m)": vista["altitud"].values}, index=vista["odometro"].values))
-
-                    st.markdown("### Resumen por trazado")
-                    resumen = trabajo.groupby("trazado", dropna=False).agg(
-                        odometro_inicial=("odometro", "min"),
-                        odometro_final=("odometro", "max"),
-                        kms_recorridos=("distancia_parcial", "sum"),
-                        velocidad_promedio=("velocidad", "mean") if col_vel != "(No usar)" else ("odometro", "count")
-                    ).reset_index()
-
-                    if col_vel == "(No usar)":
-                        resumen = resumen.drop(columns=["velocidad_promedio"])
-
-                    resumen["kwh_km"] = kwh_km
-                    resumen["km_kwh"] = km_kwh if km_kwh is not None else 0
-                    resumen["autonomia_proyectada_km"] = autonomia if autonomia is not None else 0
-                    resumen["semaforo"] = resumen["kwh_km"].apply(lambda x: semaforo_kwh(x, rendimiento_objetivo))
-
-                    st.dataframe(resumen, use_container_width=True)
-
-                    detalle = trabajo.copy()
-
-                    export_excel = exportar_resultados_excel(
-                        detalle,
-                        resumen,
-                        trabajo[["trazado", "lat", "lon"]].dropna() if "lat" in trabajo.columns and "lon" in trabajo.columns else None
-                    )
-
-                    st.download_button(
-                        "Descargar resultados Excel",
-                        data=export_excel,
-                        file_name=f"Rendimiento_energetico_{fecha_corta(date.today())}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
 
 # =========================================================
-# TAB 4 - DASHBOARD COMERCIAL
+# TAB 4 - DASHBOARD
 # =========================================================
 with tab_dash:
     st.subheader("Dashboard Comercial")
@@ -891,15 +872,14 @@ with tab_dash:
             c2.metric("Monto total negocio", usd_fmt(df_dash["total_negocio"].sum()))
             c3.metric("Promedio por cotización", usd_fmt(df_dash["total_negocio"].mean()))
 
-            st.markdown("### Evolución del precio unitario")
             df_precio = df_dash.dropna(subset=["fecha_dt"]).sort_values("fecha_dt")
 
+            st.markdown("### Evolución del precio unitario")
             graf_precio = alt.Chart(df_precio).mark_line(point=True).encode(
                 x=alt.X("fecha_dt:T", title="Fecha"),
                 y=alt.Y("precio_unitario:Q", title="Precio unitario (USD)"),
                 tooltip=["fecha", "cliente", "cotizante", "precio_unitario"]
             ).properties(height=320)
-
             st.altair_chart(graf_precio, use_container_width=True)
 
             st.markdown("### Evolución del total negocio")
@@ -909,38 +889,7 @@ with tab_dash:
                 color=alt.Color("cotizante:N", title="Cotizante"),
                 tooltip=["fecha", "cliente", "cotizante", "total_negocio"]
             ).properties(height=320)
-
             st.altair_chart(graf_total, use_container_width=True)
-
-            st.markdown("### Precio unitario promedio por ejecutivo")
-            resumen_ej_precio = (
-                df_dash.groupby("cotizante", dropna=False)["precio_unitario"]
-                .mean()
-                .reset_index()
-            )
-
-            graf_precio_ej = alt.Chart(resumen_ej_precio).mark_bar().encode(
-                x=alt.X("cotizante:N", title="Cotizante", sort="-y"),
-                y=alt.Y("precio_unitario:Q", title="Precio unitario promedio (USD)"),
-                tooltip=["cotizante", "precio_unitario"]
-            ).properties(height=320)
-
-            st.altair_chart(graf_precio_ej, use_container_width=True)
-
-            st.markdown("### Total negocio por ejecutivo")
-            resumen_ej_total = (
-                df_dash.groupby("cotizante", dropna=False)["total_negocio"]
-                .sum()
-                .reset_index()
-            )
-
-            graf_total_ej = alt.Chart(resumen_ej_total).mark_bar().encode(
-                x=alt.X("cotizante:N", title="Cotizante", sort="-y"),
-                y=alt.Y("total_negocio:Q", title="Total negocio acumulado (USD)"),
-                tooltip=["cotizante", "total_negocio"]
-            ).properties(height=320)
-
-            st.altair_chart(graf_total_ej, use_container_width=True)
 
             st.markdown("### Relación entre precio unitario y total negocio")
             graf_scatter = alt.Chart(df_dash).mark_circle(size=120).encode(
@@ -950,30 +899,13 @@ with tab_dash:
                 size=alt.Size("cantidad_unidades:Q", title="Cantidad unidades"),
                 tooltip=["cliente", "cotizante", "cantidad_unidades", "precio_unitario", "total_negocio"]
             ).properties(height=350)
-
             st.altair_chart(graf_scatter, use_container_width=True)
 
             st.markdown("### Detalle")
-            df_dash_vista = df_dash.copy()
-            df_dash_vista["precio_unitario"] = df_dash_vista["precio_unitario"].apply(usd_fmt)
-            df_dash_vista["total_negocio"] = df_dash_vista["total_negocio"].apply(usd_fmt)
-
-            st.dataframe(
-                df_dash_vista[
-                    [
-                        "fecha",
-                        "cliente",
-                        "cotizante",
-                        "numero_cotizacion",
-                        "cantidad_unidades",
-                        "precio_unitario",
-                        "total_negocio",
-                        "capacidad_bateria",
-                        "creado_en",
-                    ]
-                ],
-                use_container_width=True
-            )
+            df_v = df_dash.copy()
+            df_v["precio_unitario"] = df_v["precio_unitario"].apply(usd_fmt)
+            df_v["total_negocio"] = df_v["total_negocio"].apply(usd_fmt)
+            st.dataframe(df_v, use_container_width=True)
 
     except Exception as e:
         st.error(f"Error dashboard: {e}")

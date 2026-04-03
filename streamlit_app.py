@@ -124,7 +124,6 @@ def init_db():
             cantidad_unidades INTEGER NOT NULL,
             precio_unitario REAL NOT NULL,
             total_negocio REAL NOT NULL,
-            contrato_mantto TEXT,
             texto_mantto TEXT,
             capacidad_bateria TEXT,
             creado_en TEXT NOT NULL DEFAULT (datetime('now'))
@@ -154,8 +153,7 @@ def guardar_cotizacion(data):
     cur.execute("""
         INSERT INTO cotizaciones (
             fecha, cliente, cotizante, prefijo, correlativo, numero_cotizacion,
-            cantidad_unidades, precio_unitario, total_negocio,
-            contrato_mantto, texto_mantto, capacidad_bateria, creado_en
+            cantidad_unidades, precio_unitario, total_negocio, texto_mantto, capacidad_bateria, creado_en
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     """, (
@@ -168,7 +166,6 @@ def guardar_cotizacion(data):
         data["cantidad_unidades"],
         data["precio_unitario_raw"],
         data["total_negocio_raw"],
-        data["contrato_mantto"],
         data["texto_mantto"],
         data["capacidad_bateria"],
     ))

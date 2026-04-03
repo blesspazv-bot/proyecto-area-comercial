@@ -1,151 +1,169 @@
+import io
+from datetime import date
+
 import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
+from docx import Document
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+st.set_page_config(page_title="APP Área Comercial Buses y Vans", layout="wide")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+COTIZANTES = {
+    "Diego Vejar": "DV",
+    "Sergio Silva": "SS",
+    "Alvaro Correa": "AC",
+    "Fabian Orellana": "FO",
+    "Rodrigo Sepulveda": "RS",
+}
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+FIRMAS = {
+    "Diego Vejar": {
+        "nombre": "Diego Vejar",
+        "cargo": "Ejecutivo Comercial",
+        "correo": "",
+        "telefono": ""
+    },
+    "Sergio Silva": {
+        "nombre": "Sergio Silva",
+        "cargo": "Ejecutivo Comercial",
+        "correo": "",
+        "telefono": ""
+    },
+    "Alvaro Correa": {
+        "nombre": "Alvaro Correa",
+        "cargo": "Ejecutivo Comercial",
+        "correo": "",
+        "telefono": ""
+    },
+    "Fabian Orellana": {
+        "nombre": "Fabian Orellana",
+        "cargo": "Ejecutivo Comercial",
+        "correo": "",
+        "telefono": ""
+    },
+    "Rodrigo Sepulveda": {
+        "nombre": "Rodrigo Sepulveda Toepfer",
+        "cargo": "Gerente de Buses y Vans (Iveco)",
+        "correo": "rsepulveda@andesmotor.cl",
+        "telefono": "227202221 / 979783254"
+    },
+}
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
+TEMPLATE_PATH = "Propuesta_FOTON_Electrico_U9.docx"
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+def format_usd(valor: float) -> str:
+    return f"USD$ {valor:,.0f}".replace(",", ".")
 
-st.header(f'GDP in {to_year}', divider='gray')
 
-''
+def numero_cotizacion(cotizante: str, correlativo: int) -> str:
+    prefijo = COTIZANTES[cotizante]
+    return f"{prefijo}-{correlativo:02d}"
 
-cols = st.columns(4)
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
+def reemplazar_en_parrafo(paragraph, reemplazos):
+    texto = "".join(run.text for run in paragraph.runs)
+    nuevo = texto
+    for k, v in reemplazos.items():
+        nuevo = nuevo.replace(k, v)
+    if nuevo != texto:
+        if paragraph.runs:
+            paragraph.runs[0].text = nuevo
+            for run in paragraph.runs[1:]:
+                run.text = ""
         else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+            paragraph.add_run(nuevo)
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
+
+def reemplazar_en_doc(doc, reemplazos):
+    for p in doc.paragraphs:
+        reemplazar_en_parrafo(p, reemplazos)
+
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    reemplazar_en_parrafo(p, reemplazos)
+
+
+def generar_docx(datos):
+    doc = Document(TEMPLATE_PATH)
+
+    firma = FIRMAS[datos["cotizante"]]
+
+    reemplazos = {
+        "Santiago, miércoles 17 de diciembre de 2025": datos["fecha"],
+        "Cotización n° RS-03": f'Cotización n° {datos["numero_cotizacion"]}',
+        "Conecta": datos["cliente"],
+        "1 Buses Eléctricos, Marca FOTON, Modelo U9 de carrocería monocasco Urbano estándar RED, año 2026.": (
+            f'{datos["cantidad_unidades"]} Buses Eléctricos, Marca FOTON, Modelo U9 de carrocería monocasco Urbano estándar RED, año 2026.'
+        ),
+        "· Valor unitario por bus: USD$  130.491.-  + IVA.": (
+            f'· Valor unitario por bus: {datos["monto"]} + IVA.'
+        ),
+        "· Valor cuota flota por unidad: . + IVA por 96 meses, con una tasa leasing de %.": (
+            f'· Valor total negocio: {datos["total_negocio"]} + IVA.'
+        ),
+        "48 meses": datos["contrato_mantto"],
+        "Rodrigo Sepúlveda Toepfer": firma["nombre"],
+        "Gerente de Buses y Vans (Iveco)": firma["cargo"],
+        "rsepulveda@andesmotor.cl": firma["correo"],
+        "T: 227202221": f'T: {firma["telefono"]}' if firma["telefono"] else "T:",
+    }
+
+    reemplazar_en_doc(doc, reemplazos)
+
+    salida = io.BytesIO()
+    doc.save(salida)
+    salida.seek(0)
+    return salida
+
+
+st.title("APP Área Comercial Buses y Vans")
+st.subheader("Generador de Cotización FOTON U9")
+
+with st.form("form_cotizacion"):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        fecha = st.date_input("Fecha", value=date.today())
+        cliente = st.text_input("Cliente")
+        cotizante = st.selectbox("Cotizante", list(COTIZANTES.keys()))
+        correlativo = st.number_input("Correlativo", min_value=1, value=1, step=1)
+
+    with col2:
+        monto = st.number_input("Monto unitario USD", min_value=0.0, value=130491.0, step=1000.0)
+        contrato_mantto = st.text_input("Contrato mantto", value="48 meses")
+        cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
+
+    total_negocio = monto * cantidad_unidades
+
+    submitted = st.form_submit_button("Generar cotización")
+
+if submitted:
+    try:
+        num_cot = numero_cotizacion(cotizante, correlativo)
+
+        datos = {
+            "fecha": fecha.strftime("%d-%m-%Y"),
+            "cliente": cliente.strip() if cliente.strip() else "Cliente",
+            "cotizante": cotizante,
+            "numero_cotizacion": num_cot,
+            "monto": format_usd(monto),
+            "contrato_mantto": contrato_mantto,
+            "cantidad_unidades": str(cantidad_unidades),
+            "total_negocio": format_usd(total_negocio),
+        }
+
+        archivo = generar_docx(datos)
+
+        st.success(f"Cotización {num_cot} generada correctamente.")
+        st.write(f"Total negocio: {format_usd(total_negocio)}")
+
+        st.download_button(
+            label="Descargar cotización Word",
+            data=archivo,
+            file_name=f"Cotizacion_{num_cot}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
+
+    except Exception as e:
+        st.error(f"Error al generar la cotización: {e}")

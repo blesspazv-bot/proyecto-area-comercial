@@ -3,19 +3,39 @@ import sqlite3
 import tempfile
 import subprocess
 import shutil
+import base64
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 from docxtpl import DocxTemplate, RichText
 
-st.set_page_config(page_title="APP Área Comercial Buses y Vans", layout="wide")
+# =========================================================
+# CONFIGURACION GENERAL
+# =========================================================
+st.set_page_config(
+    page_title="APP Área Comercial Buses y Vans",
+    page_icon="🚌",
+    layout="wide"
+)
 
 TEMPLATE_FILE = "plantilla_cotizacion_foton_u9.docx"
 DB_FILE = "cotizaciones.db"
+LOGO_FILE = "logo_andes_motor.png"
 
 # =========================================================
-# COTIZANTES
+# USUARIOS LOGIN
+# =========================================================
+USUARIOS = {
+    "dvejar": {"nombre": "Diego Vejar"},
+    "ssilva": {"nombre": "Sergio Silva"},
+    "acorrea": {"nombre": "Alvaro Correa"},
+    "forellana": {"nombre": "Fabian Orellana"},
+    "rsepulveda": {"nombre": "Rodrigo Sepulveda"},
+}
+
+# =========================================================
+# COTIZANTES / FIRMAS
 # =========================================================
 COTIZANTES = {
     "Diego Vejar": {
@@ -56,7 +76,43 @@ COTIZANTES = {
 }
 
 # =========================================================
-# UTILIDADES
+# ESTILO / LOGO FONDO
+# =========================================================
+def agregar_logo_fondo(ruta_logo: str):
+    if not os.path.exists(ruta_logo):
+        return
+    with open(ruta_logo, "rb") as f:
+        logo_base64 = base64.b64encode(f.read()).decode()
+
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{logo_base64}");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 460px;
+            background-attachment: fixed;
+        }}
+        .stApp::before {{
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.93);
+            z-index: -1;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+agregar_logo_fondo(LOGO_FILE)
+
+# =========================================================
+# UTILIDADES GENERALES
 # =========================================================
 def fecha_larga_es(fecha):
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -72,11 +128,17 @@ def fecha_corta(fecha):
 
 
 def usd_fmt(valor):
-    return f"USD$ {valor:,.0f}".replace(",", ".")
+    try:
+        return f"USD$ {valor:,.0f}".replace(",", ".")
+    except Exception:
+        return "USD$ 0"
 
 
 def clp_fmt(valor):
-    return f"$ {valor:,.0f}".replace(",", ".")
+    try:
+        return f"$ {valor:,.0f}".replace(",", ".")
+    except Exception:
+        return "$ 0"
 
 
 def limpiar_nombre_archivo(texto):
@@ -136,7 +198,6 @@ def sugerir_columna(columnas, candidatos):
             if cand in col_lower:
                 return col_real
     return None
-
 
 # =========================================================
 # BASE DE DATOS
@@ -276,7 +337,6 @@ def siguiente_correlativo(cotizante):
     """, (prefijo,))
     row = cur.fetchone()
     conn.close()
-
     ultimo = row[0] if row and row[0] is not None else 0
     return ultimo + 1
 
@@ -327,7 +387,6 @@ def cargar_historial():
     """, conn)
     conn.close()
     return df
-
 
 # =========================================================
 # DOCX / PDF
@@ -381,7 +440,6 @@ def convertir_docx_a_pdf(docx_path):
 
     return pdf_path
 
-
 # =========================================================
 # EXCEL RESULTADOS
 # =========================================================
@@ -396,18 +454,61 @@ def exportar_resultados_excel(df_detalle, df_resumen, df_ruta=None):
     with open(tmp.name, "rb") as f:
         return f.read()
 
+# =========================================================
+# LOGIN
+# =========================================================
+if "usuario" not in st.session_state:
+    st.session_state.usuario = None
+
+if st.session_state.usuario is None:
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if os.path.exists(LOGO_FILE):
+            st.image(LOGO_FILE, width=180)
+        st.title("Ingreso Área Comercial")
+        user = st.text_input("Usuario")
+        login_btn = st.button("Ingresar", use_container_width=True)
+
+        if login_btn:
+            if user in USUARIOS:
+                st.session_state.usuario = user
+                st.rerun()
+            else:
+                st.error("Usuario no válido")
+    st.stop()
+
+usuario_actual = USUARIOS[st.session_state.usuario]["nombre"]
 
 # =========================================================
 # APP
 # =========================================================
 init_db()
 
-st.title("APP Área Comercial Buses y Vans")
+if os.path.exists(LOGO_FILE):
+    h1, h2 = st.columns([1, 6])
+    with h1:
+        st.image(LOGO_FILE, width=120)
+    with h2:
+        st.markdown(
+            """
+            <h1 style='margin-bottom:0;'>APP Área Comercial Buses y Vans</h1>
+            <p style='margin-top:0;color:gray;'>Andes Motor - Plataforma Comercial</p>
+            """,
+            unsafe_allow_html=True
+        )
+else:
+    st.title("APP Área Comercial Buses y Vans")
 
-tab_cot, tab_hist, tab_efi = st.tabs([
-    "Nueva cotización",
-    "Historial",
-    "Eficiencia energética"
+st.sidebar.success(f"Usuario: {usuario_actual}")
+if st.sidebar.button("Cerrar sesión"):
+    st.session_state.usuario = None
+    st.rerun()
+
+tab_cot, tab_hist, tab_efi, tab_dash = st.tabs([
+    "🧾 Nueva cotización",
+    "📚 Historial",
+    "⚡ Eficiencia energética",
+    "📊 Dashboard Comercial"
 ])
 
 # =========================================================
@@ -416,12 +517,14 @@ tab_cot, tab_hist, tab_efi = st.tabs([
 with tab_cot:
     st.subheader("Cotización FOTON U9")
 
+    cotizante = usuario_actual
+
     c1, c2 = st.columns(2)
 
     with c1:
         fecha = st.date_input("Fecha", value=date.today())
         cliente = st.text_input("Cliente", value="")
-        cotizante = st.selectbox("Cotizante", list(COTIZANTES.keys()))
+        st.text_input("Cotizante", value=cotizante, disabled=True)
 
     with c2:
         cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
@@ -552,7 +655,7 @@ with tab_hist:
         st.error(f"No fue posible cargar el historial: {e}")
 
 # =========================================================
-# TAB 3 - EFICIENCIA ADAPTADA OSORNO
+# TAB 3 - EFICIENCIA
 # =========================================================
 with tab_efi:
     st.subheader("Eficiencia energética")
@@ -683,7 +786,6 @@ with tab_efi:
 
                     st.markdown("### Indicadores principales")
                     k1, k2, k3, k4 = st.columns(4)
-
                     k1.metric("Rendimiento kWh/km", f"{kwh_km:.3f}")
                     k2.metric("Autonomía proyectada", f"{autonomia:.0f} km" if autonomia else "Sin dato")
                     k3.metric("Kms recorridos", f"{distancia_total:.1f} km")
@@ -760,3 +862,35 @@ with tab_efi:
 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
+
+# =========================================================
+# TAB 4 - DASHBOARD COMERCIAL
+# =========================================================
+with tab_dash:
+    st.subheader("Dashboard Comercial")
+
+    try:
+        df_dash = cargar_historial()
+        if df_dash.empty:
+            st.info("No hay datos aún.")
+        else:
+            df_dash["total_negocio"] = pd.to_numeric(df_dash["total_negocio"], errors="coerce").fillna(0)
+            df_dash["precio_unitario"] = pd.to_numeric(df_dash["precio_unitario"], errors="coerce").fillna(0)
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total cotizaciones", len(df_dash))
+            c2.metric("Monto total USD", usd_fmt(df_dash["total_negocio"].sum()))
+            c3.metric("Promedio por cotización", usd_fmt(df_dash["total_negocio"].mean()))
+
+            st.markdown("### Cotizaciones por ejecutivo")
+            resumen_ej = df_dash.groupby("cotizante", dropna=False)["total_negocio"].sum().reset_index()
+            st.bar_chart(resumen_ej.set_index("cotizante"))
+
+            st.markdown("### Detalle")
+            df_dash_vista = df_dash.copy()
+            df_dash_vista["precio_unitario"] = df_dash_vista["precio_unitario"].apply(usd_fmt)
+            df_dash_vista["total_negocio"] = df_dash_vista["total_negocio"].apply(usd_fmt)
+            st.dataframe(df_dash_vista, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Error dashboard: {e}")

@@ -12,8 +12,6 @@ import unicodedata
 import plotly.express as px
 import pandas as pd
 import streamlit as st
-import os
-import base64
 def agregar_logo_central_tenue(ruta_logo: str):
     if not os.path.exists(ruta_logo):
         return
@@ -156,34 +154,6 @@ MODELOS = {
     },
 }
 
-# =========================================================
-# ESTILO / LOGO CENTRAL TENUE
-# =========================================================
-st.markdown("""
-<style>
-.stApp {
-    background-image: url("logo_andes_motor.png");
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 500px;
-}
-
-.stApp::before {
-    content: "";
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-image: url("logo_andes_motor.png");
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 500px;
-    opacity: 0.04;
-    z-index: -1;
-}
-</style>
-""", unsafe_allow_html=True)
 
 
 # =========================================================
@@ -825,9 +795,6 @@ with tab_efi:
                     return c_real
         return None
 
-    def fig_to_png_bytes(fig, width=1000, height=500):
-        return fig.to_image(format="png", width=width, height=height, scale=2)
-
     def generar_pdf_ejecutivo(
         trazado,
         bateria,
@@ -836,10 +803,7 @@ with tab_efi:
         rendimiento,
         autonomia_total,
         autonomia_15,
-        vel_prom,
-        fig_vs,
-        fig_map,
-        fig_alt
+        vel_prom
     ):
         buffer = BytesIO()
         doc = SimpleDocTemplate(
@@ -886,25 +850,24 @@ with tab_efi:
         story.append(tabla)
         story.append(Spacer(1, 0.5 * cm))
 
-        story.append(Paragraph("<b>Velocidad y Estado de Carga</b>", styles["Heading3"]))
-        img1 = Image(BytesIO(fig_to_png_bytes(fig_vs, 1200, 450)))
-        img1.drawWidth = 17 * cm
-        img1.drawHeight = 6.5 * cm
-        story.append(img1)
-        story.append(Spacer(1, 0.3 * cm))
+        texto = (
+            "Este informe resume el desempeño energético del trazado seleccionado. "
+            "Los cálculos de rendimiento y autonomía se obtienen desde la hoja resumen, "
+            "mientras que la hoja base se utiliza para las visualizaciones de velocidad, "
+            "estado de carga, altimetría y recorrido."
+        )
+        story.append(Paragraph(texto, styles["BodyText"]))
+        story.append(Spacer(1, 0.35 * cm))
 
-        story.append(Paragraph("<b>Mapa del recorrido</b>", styles["Heading3"]))
-        img2 = Image(BytesIO(fig_to_png_bytes(fig_map, 1200, 600)))
-        img2.drawWidth = 17 * cm
-        img2.drawHeight = 8.2 * cm
-        story.append(img2)
-        story.append(Spacer(1, 0.3 * cm))
-
-        story.append(Paragraph("<b>Perfil de altura</b>", styles["Heading3"]))
-        img3 = Image(BytesIO(fig_to_png_bytes(fig_alt, 1200, 400)))
-        img3.drawWidth = 17 * cm
-        img3.drawHeight = 5.8 * cm
-        story.append(img3)
+        story.append(Paragraph("<b>Observaciones</b>", styles["Heading3"]))
+        obs = [
+            f"• Rendimiento calculado: {rendimiento:.3f} kWh/km.",
+            f"• Autonomía total estimada para {bateria:.1f} kWh: {autonomia_total:.0f} km.",
+            f"• Autonomía útil considerando reserva de 15% SoC: {autonomia_15:.0f} km.",
+            f"• Velocidad promedio del recorrido: {vel_prom:.1f} km/h.",
+        ]
+        for o in obs:
+            story.append(Paragraph(o, styles["BodyText"]))
 
         doc.build(story)
         buffer.seek(0)
@@ -1252,10 +1215,7 @@ with tab_efi:
                     rendimiento=rendimiento,
                     autonomia_total=autonomia,
                     autonomia_15=autonomia_15,
-                    vel_prom=vel_prom,
-                    fig_vs=fig_vs,
-                    fig_map=fig_map,
-                    fig_alt=fig_alt
+                    vel_prom=vel_prom
                 )
 
                 st.download_button(

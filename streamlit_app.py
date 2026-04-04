@@ -4,7 +4,9 @@ import tempfile
 import subprocess
 import shutil
 import base64
-from datetime import date
+import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -135,6 +137,14 @@ agregar_logo_central_tenue(LOGO_FILE)
 # =========================================================
 # UTILIDADES
 # =========================================================
+def ahora_santiago():
+    return datetime.now(ZoneInfo("America/Santiago"))
+
+
+def hoy_santiago():
+    return ahora_santiago().date()
+
+
 def fecha_larga_es(fecha):
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     meses = [
@@ -266,7 +276,7 @@ def crear_tabla_cotizaciones(conn):
             lugar_entrega TEXT,
             contrato_mantto TEXT,
             texto_mantto TEXT,
-            creado_en TEXT NOT NULL DEFAULT (datetime('now'))
+            creado_en TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -289,7 +299,7 @@ def migrar_base_si_corresponde():
         "lugar_entrega": "TEXT",
         "contrato_mantto": "TEXT",
         "texto_mantto": "TEXT",
-        "creado_en": "TEXT DEFAULT (datetime('now'))",
+        "creado_en": "TEXT",
         "fecha": "TEXT",
         "prefijo": "TEXT",
         "correlativo": "INTEGER",
@@ -339,7 +349,7 @@ def migrar_base_si_corresponde():
                 '',
                 '',
                 '',
-                datetime('now')
+                ''
             FROM cotizaciones_old
         """)
         conn.commit()
@@ -378,13 +388,15 @@ def siguiente_correlativo(cotizante):
 def guardar_cotizacion(data):
     conn = get_conn()
     cur = conn.cursor()
+    creado_en = ahora_santiago().strftime("%Y-%m-%d %H:%M:%S")
+
     cur.execute("""
         INSERT INTO cotizaciones (
             fecha, cliente, cotizante, prefijo, correlativo, numero_cotizacion,
             modelo, capacidad_bateria, cantidad_unidades, precio_unitario, total_negocio,
             lugar_entrega, contrato_mantto, texto_mantto, creado_en
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data["fecha_iso"],
         data["cliente"],
@@ -400,6 +412,7 @@ def guardar_cotizacion(data):
         data["lugar_entrega"],
         data["contrato_mantto"],
         data["texto_mantto"],
+        creado_en,
     ))
     conn.commit()
     conn.close()
@@ -461,8 +474,7 @@ def convertir_docx_a_pdf(docx_path):
 
     if soffice_path is None:
         raise RuntimeError(
-            "No se encontró LibreOffice/soffice en el servidor. "
-            "Instala LibreOffice para habilitar PDF."
+            "No se encontró LibreOffice/soffice en el servidor. Instala LibreOffice para habilitar PDF."
         )
 
     output_dir = os.path.dirname(docx_path)
@@ -551,6 +563,7 @@ with header2:
 st.markdown("---")
 
 st.sidebar.success(f"Usuario: {usuario_actual}")
+st.sidebar.caption(f"Hora Santiago: {ahora_santiago().strftime('%d-%m-%Y %H:%M:%S')}")
 if st.sidebar.button("Cerrar sesión"):
     st.session_state.usuario = None
     st.rerun()
@@ -575,7 +588,7 @@ with tab_cot:
     c1, c2 = st.columns(2)
 
     with c1:
-        fecha = st.date_input("Fecha", value=date.today())
+        fecha = st.date_input("Fecha", value=hoy_santiago())
         cliente = st.text_input("Cliente", value="")
         st.text_input("Cotizante", value=cotizante, disabled=True)
         lugar_entrega = st.text_input("Lugar de entrega", value="")
@@ -681,7 +694,14 @@ III. Telemetría incluida""",
                     )
 
                 try:
-                    archivo_pdf = convertir_docx_a_pdf(archivo_docx)
+                    inicio_pdf = time.time()
+
+                    with st.spinner("Generando PDF..."):
+                        archivo_pdf = convertir_docx_a_pdf(archivo_docx)
+
+                    fin_pdf = time.time()
+                    segundos_pdf = round(fin_pdf - inicio_pdf, 2)
+
                     with open(archivo_pdf, "rb") as f:
                         contenido_pdf = f.read()
 
@@ -692,6 +712,8 @@ III. Telemetría incluida""",
                             file_name=f"{nombre_archivo}.pdf",
                             mime="application/pdf"
                         )
+
+                    st.caption(f"PDF generado en {segundos_pdf} segundos.")
 
                 except Exception as e_pdf:
                     st.warning(f"No fue posible habilitar el PDF: {e_pdf}")

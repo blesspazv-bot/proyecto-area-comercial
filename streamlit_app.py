@@ -4,7 +4,7 @@ import tempfile
 import subprocess
 import shutil
 import base64
-from datetime import date, datetime
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -23,9 +23,6 @@ st.set_page_config(
 DB_FILE = "cotizaciones.db"
 LOGO_FILE = "logo_andes_motor.png"
 
-# =========================================================
-# LOGIN
-# =========================================================
 USUARIOS = {
     "dvejar": {"nombre": "Diego Vejar"},
     "ssilva": {"nombre": "Sergio Silva"},
@@ -34,9 +31,6 @@ USUARIOS = {
     "rsepulveda": {"nombre": "Rodrigo Sepulveda"},
 }
 
-# =========================================================
-# FIRMAS / COTIZANTES
-# =========================================================
 COTIZANTES = {
     "Diego Vejar": {
         "prefijo": "DV",
@@ -75,9 +69,6 @@ COTIZANTES = {
     },
 }
 
-# =========================================================
-# MODELOS / PLANTILLAS
-# =========================================================
 MODELOS = {
     "Foton U9": {
         "tipo": "electrico",
@@ -122,8 +113,8 @@ def agregar_logo_central_tenue(ruta_logo: str):
         .stApp {{
             background-image: url("data:image/png;base64,{logo_base64}");
             background-repeat: no-repeat;
-            background-position: center 64%;
-            background-size: 300px;
+            background-position: center 66%;
+            background-size: 260px;
             background-attachment: fixed;
         }}
 
@@ -131,7 +122,7 @@ def agregar_logo_central_tenue(ruta_logo: str):
             content: "";
             position: fixed;
             inset: 0;
-            background: rgba(255,255,255,0.965);
+            background: rgba(255,255,255,0.975);
             z-index: -1;
         }}
         </style>
@@ -232,7 +223,6 @@ def sugerir_columna(columnas, candidatos):
 
 def obtener_template_por_modelo(modelo):
     return MODELOS[modelo]["template"]
-
 
 # =========================================================
 # BASE DE DATOS
@@ -450,9 +440,7 @@ def eliminar_cotizacion_por_id(cotizacion_id):
 # =========================================================
 def generar_docx(contexto, template_file, nombre_salida):
     if not os.path.exists(template_file):
-        raise FileNotFoundError(
-            f"No se encontró la plantilla '{template_file}'."
-        )
+        raise FileNotFoundError(f"No se encontró la plantilla '{template_file}'.")
 
     doc = DocxTemplate(template_file)
     doc.render(contexto)
@@ -472,7 +460,10 @@ def convertir_docx_a_pdf(docx_path):
     soffice_path = next((p for p in posibles if p and os.path.exists(p)), None)
 
     if soffice_path is None:
-        raise RuntimeError("LibreOffice no está instalado en el entorno.")
+        raise RuntimeError(
+            "No se encontró LibreOffice/soffice en el servidor. "
+            "Instala LibreOffice para habilitar PDF."
+        )
 
     output_dir = os.path.dirname(docx_path)
     comando = [
@@ -487,7 +478,7 @@ def convertir_docx_a_pdf(docx_path):
 
     if resultado.returncode != 0:
         raise RuntimeError(
-            f"Error al convertir a PDF.\nSTDOUT: {resultado.stdout}\nSTDERR: {resultado.stderr}"
+            f"Error al convertir PDF. STDOUT: {resultado.stdout} | STDERR: {resultado.stderr}"
         )
 
     pdf_path = os.path.splitext(docx_path)[0] + ".pdf"
@@ -703,10 +694,7 @@ III. Telemetría incluida""",
                         )
 
                 except Exception as e_pdf:
-                    st.warning(
-                        "Se generó el Word, pero no fue posible convertir a PDF en este entorno. "
-                        f"Detalle: {e_pdf}"
-                    )
+                    st.warning(f"No fue posible habilitar el PDF: {e_pdf}")
 
             except Exception as e:
                 st.error(f"Error al generar la cotización: {e}")
@@ -748,7 +736,6 @@ with tab_hist:
 # =========================================================
 with tab_efi:
     st.subheader("Eficiencia energética")
-    st.write("Sube una planilla Excel y selecciona las columnas.")
 
     archivo = st.file_uploader("Subir Excel", type=["xlsx", "xls"], key="excel_efi")
 
@@ -758,39 +745,27 @@ with tab_efi:
             st.dataframe(df.head(10), use_container_width=True)
 
             columnas = list(df.columns)
-
             sug_trazado = sugerir_columna(columnas, ["trazado", "ruta", "servicio"])
             sug_odo = sugerir_columna(columnas, ["odometro", "odómetro", "odom", "km"])
             sug_vel = sugerir_columna(columnas, ["velocidad", "speed"])
-            sug_soc = sugerir_columna(columnas, ["soc", "estado de carga", "carga"])
-            sug_alt = sugerir_columna(columnas, ["altura", "altitud", "elev"])
-            sug_lat = sugerir_columna(columnas, ["lat"])
-            sug_lon = sugerir_columna(columnas, ["lon", "lng", "long"])
 
-            m1, m2, m3 = st.columns(3)
+            m1, m2 = st.columns(2)
 
             with m1:
                 col_trazado = st.selectbox("Columna trazado / ruta", columnas, index=columnas.index(sug_trazado) if sug_trazado in columnas else 0)
-                col_odo = st.selectbox("Columna odómetro / km acumulado", columnas, index=columnas.index(sug_odo) if sug_odo in columnas else 0)
 
             with m2:
-                col_vel = st.selectbox("Columna velocidad", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_vel) if sug_vel in columnas else 0)
-                col_soc = st.selectbox("Columna SoC / estado de carga", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_soc) if sug_soc in columnas else 0)
+                col_odo = st.selectbox("Columna odómetro / km acumulado", columnas, index=columnas.index(sug_odo) if sug_odo in columnas else 0)
 
-            with m3:
-                col_alt = st.selectbox("Columna altura / altitud", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_alt) if sug_alt in columnas else 0)
-                col_lat = st.selectbox("Columna latitud", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_lat) if sug_lat in columnas else 0)
-                col_lon = st.selectbox("Columna longitud", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_lon) if sug_lon in columnas else 0)
+            col_vel = st.selectbox("Columna velocidad", ["(No usar)"] + columnas, index=(["(No usar)"] + columnas).index(sug_vel) if sug_vel in columnas else 0)
 
-            p1, p2, p3, p4 = st.columns(4)
+            p1, p2, p3 = st.columns(3)
 
             with p1:
                 bateria_kwh = st.selectbox("Batería", [231.8, 255.0], index=1)
             with p2:
                 reserva_pct = st.slider("Reserva batería (%)", 0, 30, 10)
             with p3:
-                rendimiento_objetivo = st.number_input("Objetivo kWh/km", min_value=0.0, value=0.95, step=0.01, format="%.2f")
-            with p4:
                 energia_total_trazado = st.number_input("Energía total del trazado (kWh)", min_value=0.0, value=10.45, step=0.01)
 
             if st.button("Calcular rendimiento", use_container_width=True):
@@ -802,23 +777,6 @@ with tab_efi:
                     trabajo["velocidad"] = pd.to_numeric(trabajo[col_vel], errors="coerce")
                 else:
                     trabajo["velocidad"] = None
-
-                if col_soc != "(No usar)":
-                    trabajo["soc"] = pd.to_numeric(trabajo[col_soc], errors="coerce")
-                else:
-                    trabajo["soc"] = None
-
-                if col_alt != "(No usar)":
-                    trabajo["altitud"] = pd.to_numeric(trabajo[col_alt], errors="coerce")
-                else:
-                    trabajo["altitud"] = None
-
-                if col_lat != "(No usar)" and col_lon != "(No usar)":
-                    trabajo["lat"] = pd.to_numeric(trabajo[col_lat], errors="coerce")
-                    trabajo["lon"] = pd.to_numeric(trabajo[col_lon], errors="coerce")
-                else:
-                    trabajo["lat"] = None
-                    trabajo["lon"] = None
 
                 trabajo = trabajo.dropna(subset=["odometro"]).copy()
 
@@ -906,5 +864,6 @@ with tab_dash:
             df_v["precio_unitario"] = df_v["precio_unitario"].apply(usd_fmt)
             df_v["total_negocio"] = df_v["total_negocio"].apply(usd_fmt)
             st.dataframe(df_v, use_container_width=True)
+
     except Exception as e:
         st.error(f"Error dashboard: {e}")

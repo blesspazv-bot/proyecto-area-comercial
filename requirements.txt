@@ -1,10 +1,10 @@
 streamlit
 pandas
+openpyxl
+plotly
+kaleido
+altair
 docxtpl
 python-docx
-openpyxl
-altair
-plotly
-pydeck
 reportlab
-kaleido
+pydeck

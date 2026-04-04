@@ -747,220 +747,192 @@ with tab_hist:
     except Exception as e:
         st.error(f"No fue posible cargar el historial: {e}")
 
-# =========================================================
-# TAB 3 - EFICIENCIA ENERGÉTICA (VERSIÓN FINAL)
-# =========================================================
 with tab_efi:
-    import pandas as pd
-    import numpy as np
     import plotly.express as px
     import plotly.graph_objects as go
-    import altair as alt
+    import pandas as pd
+    import numpy as np
 
     st.subheader("Eficiencia energética")
 
-    archivo = st.file_uploader("Subir archivo Excel (.xlsx)", type=["xlsx"], key="efi")
+    archivo = st.file_uploader("Subir Excel", type=["xlsx"], key="efi")
 
-    # -----------------------------------------------------
-    # FUNCIONES AUXILIARES
-    # -----------------------------------------------------
-    def normalizar_texto(txt):
+    def norm(txt):
         import unicodedata
-        if pd.isna(txt):
-            return ""
+        if pd.isna(txt): return ""
         txt = str(txt).lower().strip()
-        txt = unicodedata.normalize('NFKD', txt).encode('ascii', 'ignore').decode('utf-8')
-        return txt
+        return unicodedata.normalize('NFKD', txt).encode('ascii','ignore').decode('utf-8')
 
-    def normalizar_columnas(df):
-        df.columns = [normalizar_texto(c) for c in df.columns]
-        return df
-
-    # -----------------------------------------------------
     if archivo:
         try:
-            xls = pd.ExcelFile(archivo)
+            df = pd.read_excel(archivo, sheet_name=0)
+            df_resumen = pd.read_excel(archivo, sheet_name=1)
 
-            df = pd.read_excel(xls, sheet_name=0)
-            df_resumen = pd.read_excel(xls, sheet_name=1)
+            df.columns = [norm(c) for c in df.columns]
+            df_resumen.columns = [norm(c) for c in df_resumen.columns]
 
-            df = normalizar_columnas(df)
-            df_resumen = normalizar_columnas(df_resumen)
+            df["trazado_key"] = df["trazado"].apply(norm)
+            df_resumen["trazado_key"] = df_resumen["trazado"].apply(norm)
 
-            # -------------------------------------------------
-            # MAPEO DE COLUMNAS
-            # -------------------------------------------------
-            def col(nombre):
-                for c in df.columns:
-                    if nombre in c:
-                        return c
-                return None
-
-            col_trazado = col("trazado")
-            col_odo = col("odometro")
-            col_vel = col("velocidad")
-            col_soc = col("soc")
-            col_lat = col("lat")
-            col_lon = col("lon")
-            col_alt = col("alt")
-
-            # -------------------------------------------------
-            # LIMPIEZA
-            # -------------------------------------------------
-            df["trazado_key"] = df[col_trazado].apply(normalizar_texto)
-
-            df["odometro"] = pd.to_numeric(df[col_odo], errors="coerce")
-            df["velocidad"] = pd.to_numeric(df[col_vel], errors="coerce")
-            df["soc"] = pd.to_numeric(df[col_soc], errors="coerce")
-            df["lat"] = pd.to_numeric(df[col_lat], errors="coerce")
-            df["lon"] = pd.to_numeric(df[col_lon], errors="coerce")
-            df["altitud"] = pd.to_numeric(df[col_alt], errors="coerce")
-
-            df = df.sort_values("odometro")
-
-            # -------------------------------------------------
-            # RESUMEN
-            # -------------------------------------------------
-            df_resumen["trazado_key"] = df_resumen["trazado"].apply(normalizar_texto)
-
-            # -------------------------------------------------
-            # SELECTOR
-            # -------------------------------------------------
-            trazados = df[col_trazado].dropna().unique()
+            trazados = df["trazado"].dropna().unique()
             trazado_sel = st.selectbox("Seleccionar trazado", trazados)
 
-            key = normalizar_texto(trazado_sel)
+            key = norm(trazado_sel)
 
-            vista = df[df["trazado_key"] == key]
+            vista = df[df["trazado_key"] == key].copy().sort_values("odometro")
+            fila = df_resumen[df_resumen["trazado_key"] == key]
 
-            fila_resumen = df_resumen[df_resumen["trazado_key"] == key]
-
-            # -------------------------------------------------
-            # KPIs
-            # -------------------------------------------------
-            if not fila_resumen.empty:
-                fila = fila_resumen.iloc[0]
-
-                rendimiento = fila.get("rendimiento", None)
-                autonomia = fila.get("autonomia", None)
-                distancia = fila.get("distancia", None)
+            if not fila.empty:
+                fila = fila.iloc[0]
+                rendimiento = fila["rendimiento"]
+                autonomia = fila["autonomia"]
+                distancia = fila["distancia"]
             else:
                 rendimiento = None
                 autonomia = None
                 distancia = None
 
-            velocidad_prom = vista["velocidad"].mean()
+            vel_prom = vista["velocidad"].mean()
 
-            k1, k2, k3, k4 = st.columns(4)
+            # -------------------------------------------------
+            # KPIs
+            # -------------------------------------------------
+            k1,k2,k3,k4 = st.columns(4)
 
-            k1.metric("Rendimiento kWh/km", f"{rendimiento:.3f}" if rendimiento else "Sin dato")
+            k1.metric("Rendimiento", f"{rendimiento:.3f} kWh/km" if rendimiento else "Sin dato")
             k2.metric("Autonomía", f"{autonomia:.0f} km" if autonomia else "Sin dato")
-            k3.metric("Velocidad promedio", f"{velocidad_prom:.1f} km/h")
+            k3.metric("Velocidad", f"{vel_prom:.1f} km/h")
             k4.metric("Distancia", f"{distancia:.1f} km" if distancia else "Sin dato")
 
             # -------------------------------------------------
-            # GAUGES
+            # RELOJES (GAUGES)
             # -------------------------------------------------
-            c1, c2 = st.columns(2)
+            g1,g2 = st.columns(2)
 
-            with c1:
+            with g1:
                 if rendimiento:
                     fig = go.Figure(go.Indicator(
                         mode="gauge+number",
                         value=rendimiento,
-                        title={"text": "Rendimiento"},
-                        number={"suffix": " kWh/km"},
+                        number={'suffix': " kWh/km"},
+                        title={'text': "Rendimiento"},
                         gauge={
-                            "axis": {"range": [0, 1.2]},
-                            "steps": [
-                                {"range": [0, 0.9], "color": "green"},
-                                {"range": [0.9, 1.0], "color": "yellow"},
-                                {"range": [1.0, 1.2], "color": "red"},
+                            'axis': {'range': [0,1.2]},
+                            'steps':[
+                                {'range':[0,0.9],'color':'#22c55e'},
+                                {'range':[0.9,1.0],'color':'#facc15'},
+                                {'range':[1.0,1.2],'color':'#ef4444'}
                             ]
                         }
                     ))
+                    fig.update_layout(height=260)
                     st.plotly_chart(fig, use_container_width=True)
 
-            with c2:
+            with g2:
                 if autonomia:
                     fig = go.Figure(go.Indicator(
                         mode="gauge+number",
                         value=autonomia,
-                        title={"text": "Autonomía"},
-                        number={"suffix": " km"},
+                        number={'suffix': " km"},
+                        title={'text': "Autonomía"},
                         gauge={
-                            "axis": {"range": [0, 500]},
-                            "steps": [
-                                {"range": [0, 280], "color": "red"},
-                                {"range": [280, 350], "color": "yellow"},
-                                {"range": [350, 500], "color": "green"},
+                            'axis': {'range':[0,500]},
+                            'steps':[
+                                {'range':[0,280],'color':'#ef4444'},
+                                {'range':[280,350],'color':'#facc15'},
+                                {'range':[350,500],'color':'#22c55e'}
                             ]
                         }
                     ))
+                    fig.update_layout(height=260)
                     st.plotly_chart(fig, use_container_width=True)
 
             # -------------------------------------------------
-            # GRAFICO VELOCIDAD + SOC
+            # GRAFICO VELOCIDAD + SOC (SUAVE)
             # -------------------------------------------------
             st.markdown("### Velocidad y estado de carga")
 
-            chart = alt.Chart(vista).mark_line().encode(
-                x="odometro",
-                y="velocidad",
-                color=alt.value("blue")
-            ) + alt.Chart(vista).mark_line().encode(
-                x="odometro",
-                y="soc",
-                color=alt.value("orange")
+            fig = go.Figure()
+
+            fig.add_trace(go.Scatter(
+                x=vista["odometro"],
+                y=vista["velocidad"],
+                mode='lines+markers',
+                name='Velocidad',
+                line=dict(shape='spline', width=3, color='#2563eb')
+            ))
+
+            fig.add_trace(go.Scatter(
+                x=vista["odometro"],
+                y=vista["soc"],
+                mode='lines+markers',
+                name='SoC',
+                yaxis="y2",
+                line=dict(shape='spline', width=3, color='#f97316')
+            ))
+
+            fig.update_layout(
+                yaxis=dict(title="Velocidad"),
+                yaxis2=dict(
+                    title="SoC",
+                    overlaying='y',
+                    side='right'
+                ),
+                height=350
             )
 
-            st.altair_chart(chart, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
 
             # -------------------------------------------------
-            # MAPA (MEJORADO)
+            # MAPA (YA PERFECTO)
             # -------------------------------------------------
-            st.markdown("### Mapa del recorrido")
+            st.markdown("### Mapa del trazado")
 
-            mapa = vista.dropna(subset=["lat", "lon"])
+            mapa = vista.dropna(subset=["lat","lon"])
 
-            if not mapa.empty:
+            fig_map = px.scatter_map(
+                mapa,
+                lat="lat",
+                lon="lon",
+                zoom=13,
+                height=450
+            )
 
-                fig_map = px.scatter_map(
-                    mapa,
-                    lat="lat",
-                    lon="lon",
-                    zoom=13,
-                    height=500
-                )
+            fig_map.add_scattermap(
+                lat=mapa["lat"],
+                lon=mapa["lon"],
+                mode="lines",
+                line=dict(width=5,color="#2563eb")
+            )
 
-                fig_map.add_scattermap(
-                    lat=mapa["lat"],
-                    lon=mapa["lon"],
-                    mode="lines",
-                    line=dict(width=5, color="blue"),
-                    name="Ruta"
-                )
-
-                fig_map.update_layout(
-                    map_style="open-street-map",
-                    margin=dict(r=0, t=0, l=0, b=0)
-                )
-
-                st.plotly_chart(fig_map, use_container_width=True)
+            fig_map.update_layout(map_style="open-street-map")
+            st.plotly_chart(fig_map, use_container_width=True)
 
             # -------------------------------------------------
-            # PERFIL ALTURA
+            # PERFIL ALTURA (MEJORADO)
             # -------------------------------------------------
             st.markdown("### Perfil de altura")
 
-            perfil = vista[["odometro", "altitud"]].dropna()
+            fig_alt = go.Figure()
 
-            if not perfil.empty:
-                fig = px.line(perfil, x="odometro", y="altitud")
-                st.plotly_chart(fig, use_container_width=True)
+            fig_alt.add_trace(go.Scatter(
+                x=vista["odometro"],
+                y=vista["altitud"],
+                fill='tozeroy',
+                line=dict(shape='spline', width=3, color='#3b82f6')
+            ))
+
+            fig_alt.update_layout(height=320)
+            st.plotly_chart(fig_alt, use_container_width=True)
+
+            # -------------------------------------------------
+            # TABLA RESUMEN (SE MANTIENE)
+            # -------------------------------------------------
+            st.markdown("### Tabla resumen")
+            st.dataframe(df_resumen, use_container_width=True)
 
         except Exception as e:
-            st.error(f"Error procesando archivo: {e}")
+            st.error(f"Error: {e}")
 # =========================================================
 # TAB 4 - DASHBOARD
 # =========================================================

@@ -767,27 +767,20 @@ with tab_efi:
             df = leer_excel_hoja(archivo, hoja_datos)
             df_resumen_excel = leer_excel_hoja(archivo, hoja_resumen) if hoja_resumen else None
 
-            st.markdown("### Vista previa hoja principal")
-            st.dataframe(df.head(10), use_container_width=True)
+            columnas = list(df.columns)
 
-            if df_resumen_excel is not None:
-                st.markdown("### Vista previa hoja resumen")
-                st.dataframe(df_resumen_excel, use_container_width=True)
+            def buscar_columna(candidatos):
+                columnas_lower = {str(c).lower(): c for c in columnas}
+                for cand in candidatos:
+                    cand_norm = normalizar_texto(cand)
+                    for col_lower, col_real in columnas_lower.items():
+                        if cand_norm in normalizar_texto(col_lower):
+                            return col_real
+                return None
 
             # -------------------------------------------------
             # HOJA PRINCIPAL
             # -------------------------------------------------
-            columnas = list(df.columns)
-
-            def buscar_columna(candidatos):
-                columnas_lower = {normalizar_texto(c): c for c in columnas}
-                for cand in candidatos:
-                    cand_norm = normalizar_texto(cand)
-                    for col_lower, col_real in columnas_lower.items():
-                        if cand_norm in col_lower:
-                            return col_real
-                return None
-
             col_fecha = buscar_columna(["fecha evento", "fecha"])
             col_lon = buscar_columna(["longitud", "longitude", "lon"])
             col_lat = buscar_columna(["latitud", "latitude", "lat"])
@@ -869,7 +862,7 @@ with tab_efi:
                             resumen[c] = pd.to_numeric(resumen[c], errors="coerce")
 
                 # -------------------------------------------------
-                # SELECTOR
+                # SELECTOR DE TRAZADO
                 # -------------------------------------------------
                 trazados_df = (
                     trabajo[["trazado_raw", "trazado_key"]]
@@ -877,8 +870,8 @@ with tab_efi:
                     .sort_values("trazado_raw")
                 )
 
-                trazados_display = trazados_df["trazado_raw"].tolist()
-                trazado_sel_display = st.selectbox("Trazado", trazados_display)
+                st.markdown("### Selección de trazado")
+                trazado_sel_display = st.selectbox("Trazado", trazados_df["trazado_raw"].tolist())
 
                 trazado_sel_key = trazados_df.loc[
                     trazados_df["trazado_raw"] == trazado_sel_display, "trazado_key"
@@ -890,7 +883,7 @@ with tab_efi:
                     st.warning("No hay datos para el trazado seleccionado.")
                 else:
                     # -------------------------------------------------
-                    # RESUMEN POR TRAZADO
+                    # DATOS RESUMEN
                     # -------------------------------------------------
                     pasajeros = None
                     distancia_km = None
@@ -901,7 +894,6 @@ with tab_efi:
 
                     if resumen is not None and "trazado_key" in resumen.columns:
                         fila_resumen = resumen[resumen["trazado_key"] == trazado_sel_key]
-
                         if not fila_resumen.empty:
                             fila = fila_resumen.iloc[0]
 
@@ -927,10 +919,22 @@ with tab_efi:
                     # KPIS
                     # -------------------------------------------------
                     k1, k2, k3, k4 = st.columns(4)
-                    k1.metric("Rendimiento kWh/km", f"{rendimiento:.3f}" if rendimiento is not None and not pd.isna(rendimiento) else "Sin dato")
-                    k2.metric("Autonomía proyectada", f"{autonomia:.1f} km" if autonomia is not None and not pd.isna(autonomia) else "Sin dato")
-                    k3.metric("Velocidad promedio", f"{velocidad_prom:.1f} km/h" if velocidad_prom is not None and not pd.isna(velocidad_prom) else "Sin dato")
-                    k4.metric("Kms recorridos", f"{distancia_km:.1f} km" if distancia_km is not None and not pd.isna(distancia_km) else "Sin dato")
+                    k1.metric(
+                        "Rendimiento kWh/km",
+                        f"{rendimiento:.4f}" if rendimiento is not None and not pd.isna(rendimiento) else "Sin dato"
+                    )
+                    k2.metric(
+                        "Autonomía proyectada",
+                        f"{autonomia:.1f} km" if autonomia is not None and not pd.isna(autonomia) else "Sin dato"
+                    )
+                    k3.metric(
+                        "Velocidad promedio",
+                        f"{velocidad_prom:.1f} km/h" if velocidad_prom is not None and not pd.isna(velocidad_prom) else "Sin dato"
+                    )
+                    k4.metric(
+                        "Kms recorridos",
+                        f"{distancia_km:.1f} km" if distancia_km is not None and not pd.isna(distancia_km) else "Sin dato"
+                    )
 
                     extras = []
                     if pasajeros:
@@ -1028,10 +1032,13 @@ with tab_efi:
                         st.altair_chart(chart, use_container_width=True)
 
                     with c2:
-                        st.markdown("### Trazado")
+                        st.markdown("### Mapa satelital")
+
                         mapa = vista.dropna(subset=["lat", "lon"]).copy()
 
                         if not mapa.empty:
+                            mapbox_token = os.getenv("MAPBOX_TOKEN", "")
+
                             fig_map = px.scatter_mapbox(
                                 mapa,
                                 lat="lat",
@@ -1041,11 +1048,22 @@ with tab_efi:
                                 zoom=11,
                                 height=360
                             )
+
                             fig_map.update_traces(marker={"size": 8, "color": "#dc2626"})
-                            fig_map.update_layout(
-                                mapbox_style="carto-positron",
-                                margin={"r": 0, "t": 0, "l": 0, "b": 0}
-                            )
+
+                            if mapbox_token:
+                                fig_map.update_layout(
+                                    mapbox_accesstoken=mapbox_token,
+                                    mapbox_style="satellite-streets",
+                                    margin={"r": 0, "t": 0, "l": 0, "b": 0}
+                                )
+                            else:
+                                fig_map.update_layout(
+                                    mapbox_style="carto-positron",
+                                    margin={"r": 0, "t": 0, "l": 0, "b": 0}
+                                )
+                                st.caption("Mapa satelital real requiere MAPBOX_TOKEN. Mostrando mapa alternativo.")
+
                             st.plotly_chart(fig_map, use_container_width=True)
                         else:
                             st.info("No hay coordenadas válidas para el trazado seleccionado.")
@@ -1072,18 +1090,24 @@ with tab_efi:
                     else:
                         st.info("No hay datos de altitud.")
 
-                    st.markdown("### Detalle del trazado")
-                    columnas_detalle = [
-                        c for c in [
-                            "fecha_evento", "trazado_raw", "odometro", "velocidad",
-                            "soc", "altitud", "lat", "lon"
-                        ] if c in vista.columns
-                    ]
-                    st.dataframe(vista[columnas_detalle], use_container_width=True)
+                    # -------------------------------------------------
+                    # DATOS OCULTOS
+                    # -------------------------------------------------
+                    with st.expander("Ver tabla resumen"):
+                        if df_resumen_excel is not None:
+                            st.dataframe(df_resumen_excel, use_container_width=True)
+
+                    with st.expander("Ver detalle del trazado"):
+                        columnas_detalle = [
+                            c for c in [
+                                "fecha_evento", "trazado_raw", "odometro", "velocidad",
+                                "soc", "altitud", "lat", "lon"
+                            ] if c in vista.columns
+                        ]
+                        st.dataframe(vista[columnas_detalle], use_container_width=True)
 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
-
 # =========================================================
 # TAB 4 - DASHBOARD
 # =========================================================

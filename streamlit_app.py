@@ -8,11 +8,22 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import pydeck as pdk
 import pandas as pd
 import streamlit as st
 import altair as alt
 from docxtpl import DocxTemplate, RichText
+
+try:
+    import plotly.graph_objects as go
+except ImportError:
+    st.error("Falta instalar plotly. Ejecuta: pip install plotly")
+    st.stop()
+
+try:
+    import pydeck as pdk
+except ImportError:
+    st.error("Falta instalar pydeck. Ejecuta: pip install pydeck")
+    st.stop()
 
 # =========================================================
 # CONFIGURACION GENERAL
@@ -117,7 +128,7 @@ def agregar_logo_central_tenue(ruta_logo: str):
             background-image: url("data:image/png;base64,{logo_base64}");
             background-repeat: no-repeat;
             background-position: center 66%;
-            background-size: 260px;
+            background-size: 220px;
             background-attachment: fixed;
         }}
 
@@ -125,7 +136,7 @@ def agregar_logo_central_tenue(ruta_logo: str):
             content: "";
             position: fixed;
             inset: 0;
-            background: rgba(255,255,255,0.975);
+            background: rgba(255,255,255,0.982);
             z-index: -1;
         }}
         </style>
@@ -166,13 +177,6 @@ def usd_fmt(valor):
         return "USD 0"
 
 
-def clp_fmt(valor):
-    try:
-        return f"$ {valor:,.0f}".replace(",", ".")
-    except Exception:
-        return "$ 0"
-
-
 def limpiar_nombre_archivo(texto):
     texto = str(texto).strip().replace(" ", "_")
     reemplazos = {
@@ -206,25 +210,15 @@ def detectar_motor_excel(uploaded_file):
     return "openpyxl"
 
 
-def leer_excel_seguro(uploaded_file):
+def leer_excel_hoja(uploaded_file, sheet_name):
     engine = detectar_motor_excel(uploaded_file)
     if engine:
-        return pd.read_excel(uploaded_file, engine=engine)
-    return pd.read_excel(uploaded_file)
-
-
-def semaforo_kwh(valor, objetivo):
-    if pd.isna(valor):
-        return "Sin dato"
-    if valor <= objetivo:
-        return "🟢 Dentro objetivo"
-    if valor <= objetivo * 1.10:
-        return "🟡 Leve desvío"
-    return "🔴 Sobre objetivo"
+        return pd.read_excel(uploaded_file, sheet_name=sheet_name, engine=engine)
+    return pd.read_excel(uploaded_file, sheet_name=sheet_name)
 
 
 def sugerir_columna(columnas, candidatos):
-    columnas_lower = {c.lower(): c for c in columnas}
+    columnas_lower = {str(c).lower(): c for c in columnas}
     for cand in candidatos:
         for col_lower, col_real in columnas_lower.items():
             if cand in col_lower:
@@ -244,11 +238,10 @@ def get_conn():
 
 def table_exists(conn, table_name):
     cur = conn.cursor()
-    cur.execute("""
-        SELECT name
-        FROM sqlite_master
-        WHERE type='table' AND name=?
-    """, (table_name,))
+    cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,)
+    )
     return cur.fetchone() is not None
 
 
@@ -323,7 +316,6 @@ def migrar_base_si_corresponde():
         crear_tabla_cotizaciones(conn)
 
         columnas_old = get_columns(conn, "cotizaciones_old")
-
         fecha_expr = "fecha" if "fecha" in columnas_old else "''"
         cliente_expr = "cliente" if "cliente" in columnas_old else "''"
         cotizante_expr = "cotizante" if "cotizante" in columnas_old else "''"
@@ -501,20 +493,6 @@ def convertir_docx_a_pdf(docx_path):
     return pdf_path
 
 # =========================================================
-# EXCEL RESULTADOS
-# =========================================================
-def exportar_resultados_excel(df_detalle, df_resumen, df_ruta=None):
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
-        df_detalle.to_excel(writer, sheet_name="Detalle", index=False)
-        df_resumen.to_excel(writer, sheet_name="Resumen", index=False)
-        if df_ruta is not None and not df_ruta.empty:
-            df_ruta.to_excel(writer, sheet_name="Mapa_Coordenadas", index=False)
-
-    with open(tmp.name, "rb") as f:
-        return f.read()
-
-# =========================================================
 # LOGIN
 # =========================================================
 if "usuario" not in st.session_state:
@@ -596,8 +574,8 @@ with tab_cot:
 
     with c2:
         cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
-        precio_unitario = st.number_input("Precio unitario USD", min_value=0.0, value=130000.0, step=1000.0)
-        contrato_mantto = st.text_input("Contrato mantto", value="12 meses")
+        precio_unitario = st.number_input("Precio unitario USD", min_value=0.0, value=130491.0, step=1000.0)
+        contrato_mantto = st.text_input("Contrato mantto", value="48 meses")
 
         if modelo_info["tipo"] == "electrico":
             capacidad_bateria = st.selectbox("Capacidad nominal batería", modelo_info["capacidades"])
@@ -606,11 +584,11 @@ with tab_cot:
 
     texto = st.text_area(
         "Texto mantenimiento",
-        value="""I. La oferta incluye 48 meses de mantenimiento preventivo y correctivo (Correctivo de desgaste Disco y Pastilla de frenos) sin costo para el cliente, con el fin de entregar conocimientos técnicos y aprendizaje continuo del mantenimiento para este tipo de vehículos, durante este periodo.
+        value="""I. Mantención incluida
 
-II. Adicionalmente se entregarán USD 1.500.- por bus, para la compra de repuestos de desgaste a elección del cliente (este ítem deberá ser utilizado dentro de los primeros 12 meses realizada la entrega de flota).
+II. Bono repuestos
 
-III. La oferta incluye 8 años de telemetría sin costo para el cliente.""",
+III. Telemetría incluida""",
         height=180
     )
 
@@ -696,7 +674,6 @@ III. La oferta incluye 8 años de telemetría sin costo para el cliente.""",
 
                 try:
                     inicio_pdf = time.time()
-
                     with st.spinner("Generando PDF..."):
                         archivo_pdf = convertir_docx_a_pdf(archivo_docx)
 
@@ -753,12 +730,13 @@ with tab_hist:
 
     except Exception as e:
         st.error(f"No fue posible cargar el historial: {e}")
+
 # =========================================================
 # TAB 3 - EFICIENCIA
 # =========================================================
 with tab_efi:
     st.subheader("Eficiencia energética")
-    st.write("Sube una planilla Excel con datos crudos y hoja resumen por trazado.")
+    st.write("Sube una planilla Excel con la hoja de datos y la hoja resumen por trazado.")
 
     archivo = st.file_uploader("Subir Excel", type=["xlsx", "xls"], key="excel_efi")
 
@@ -770,11 +748,8 @@ with tab_efi:
             hoja_datos = hojas[0]
             hoja_resumen = hojas[1] if len(hojas) > 1 else None
 
-            df = pd.read_excel(archivo, sheet_name=hoja_datos, engine="openpyxl")
-            df_resumen_excel = None
-
-            if hoja_resumen:
-                df_resumen_excel = pd.read_excel(archivo, sheet_name=hoja_resumen, engine="openpyxl")
+            df = leer_excel_hoja(archivo, hoja_datos)
+            df_resumen_excel = leer_excel_hoja(archivo, hoja_resumen) if hoja_resumen else None
 
             st.markdown("### Vista previa hoja principal")
             st.dataframe(df.head(10), use_container_width=True)
@@ -783,9 +758,6 @@ with tab_efi:
                 st.markdown("### Vista previa hoja resumen")
                 st.dataframe(df_resumen_excel, use_container_width=True)
 
-            # -------------------------------------------------
-            # BUSQUEDA DE COLUMNAS EN HOJA PRINCIPAL
-            # -------------------------------------------------
             columnas = list(df.columns)
 
             def buscar_columna(candidatos):
@@ -821,9 +793,6 @@ with tab_efi:
             if faltantes:
                 st.error(f"Faltan columnas clave en la hoja principal: {', '.join(faltantes)}")
             else:
-                # -------------------------------------------------
-                # NORMALIZACION HOJA PRINCIPAL
-                # -------------------------------------------------
                 trabajo = df.copy()
 
                 if col_fecha:
@@ -842,15 +811,11 @@ with tab_efi:
                 trabajo = trabajo.dropna(subset=["trazado", "odometro"]).copy()
                 trabajo = trabajo.sort_values(["trazado", "odometro"]).reset_index(drop=True)
 
-                # -------------------------------------------------
-                # NORMALIZACION HOJA RESUMEN
-                # -------------------------------------------------
                 resumen = None
                 if df_resumen_excel is not None:
                     resumen = df_resumen_excel.copy()
                     resumen.columns = [str(c).strip() for c in resumen.columns]
 
-                    # renombrado flexible
                     rename_map = {}
                     for c in resumen.columns:
                         c_low = c.lower().strip()
@@ -888,9 +853,6 @@ with tab_efi:
                 if vista.empty:
                     st.warning("No hay datos para el trazado seleccionado.")
                 else:
-                    # -------------------------------------------------
-                    # KPIS DESDE HOJA 2 (FUENTE PRINCIPAL)
-                    # -------------------------------------------------
                     pasajeros = None
                     distancia_km = None
                     pendiente_max = None
@@ -916,43 +878,20 @@ with tab_efi:
                             if "autonomia" in fila.index:
                                 autonomia = fila["autonomia"]
 
-                    # fallbacks solo si falta resumen
                     if distancia_km is None or pd.isna(distancia_km):
                         distancia_km = float(vista["odometro"].max() - vista["odometro"].min())
 
-                    if rendimiento is None or pd.isna(rendimiento):
-                        rendimiento = None
-
                     velocidad_prom = vista["velocidad"].mean() if vista["velocidad"].notna().any() else None
 
-                    # -------------------------------------------------
-                    # KPIS PRINCIPALES
-                    # -------------------------------------------------
                     k1, k2, k3, k4 = st.columns(4)
-
-                    k1.metric(
-                        "Rendimiento kWh/km",
-                        f"{rendimiento:.3f}" if rendimiento is not None and not pd.isna(rendimiento) else "Sin dato"
-                    )
-                    k2.metric(
-                        "Autonomía proyectada",
-                        f"{autonomia:.0f} km" if autonomia is not None and not pd.isna(autonomia) else "Sin dato"
-                    )
-                    k3.metric(
-                        "Velocidad promedio",
-                        f"{velocidad_prom:.1f} km/h" if velocidad_prom is not None and not pd.isna(velocidad_prom) else "Sin dato"
-                    )
-                    k4.metric(
-                        "Kms recorridos",
-                        f"{distancia_km:.1f} km" if distancia_km is not None and not pd.isna(distancia_km) else "Sin dato"
-                    )
+                    k1.metric("Rendimiento kWh/km", f"{rendimiento:.3f}" if rendimiento is not None and not pd.isna(rendimiento) else "Sin dato")
+                    k2.metric("Autonomía proyectada", f"{autonomia:.0f} km" if autonomia is not None and not pd.isna(autonomia) else "Sin dato")
+                    k3.metric("Velocidad promedio", f"{velocidad_prom:.1f} km/h" if velocidad_prom is not None and not pd.isna(velocidad_prom) else "Sin dato")
+                    k4.metric("Kms recorridos", f"{distancia_km:.1f} km" if distancia_km is not None and not pd.isna(distancia_km) else "Sin dato")
 
                     if pasajeros:
                         st.caption(f"Pasajeros: {pasajeros}")
 
-                    # -------------------------------------------------
-                    # GAUGES
-                    # -------------------------------------------------
                     gk1, gk2 = st.columns(2)
 
                     with gk1:
@@ -980,8 +919,6 @@ with tab_efi:
                             ))
                             fig_rend.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20))
                             st.plotly_chart(fig_rend, use_container_width=True)
-                        else:
-                            st.info("Sin dato de rendimiento.")
 
                     with gk2:
                         st.markdown("### Autonomía proyectada")
@@ -1008,12 +945,7 @@ with tab_efi:
                             ))
                             fig_auto.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20))
                             st.plotly_chart(fig_auto, use_container_width=True)
-                        else:
-                            st.info("Sin dato de autonomía.")
 
-                    # -------------------------------------------------
-                    # VELOCIDAD Y SOC - COLORES DISTINTOS
-                    # -------------------------------------------------
                     c1, c2 = st.columns([1.05, 1])
 
                     with c1:
@@ -1032,20 +964,13 @@ with tab_efi:
                             y=alt.Y("soc:Q", title="Estado de Carga SoC")
                         )
 
-                        chart = alt.layer(line_vel, line_soc).resolve_scale(
-                            y="independent"
-                        ).properties(height=360)
-
+                        chart = alt.layer(line_vel, line_soc).resolve_scale(y="independent").properties(height=360)
                         st.altair_chart(chart, use_container_width=True)
 
-                    # -------------------------------------------------
-                    # MAPA MAS COLORIDO / REAL
-                    # -------------------------------------------------
                     with c2:
                         st.markdown("### Trazado")
 
                         mapa = vista.dropna(subset=["lat", "lon"]).copy()
-
                         if not mapa.empty:
                             mapa_path = mapa[["lon", "lat"]].values.tolist()
 
@@ -1084,9 +1009,6 @@ with tab_efi:
                         else:
                             st.info("No hay coordenadas válidas para el trazado seleccionado.")
 
-                    # -------------------------------------------------
-                    # PERFIL DE ALTURA LIMPIO
-                    # -------------------------------------------------
                     st.markdown("### Perfil de altura")
 
                     perfil = vista[["odometro", "altitud"]].dropna().copy()
@@ -1106,9 +1028,6 @@ with tab_efi:
                     else:
                         st.info("No hay datos de altitud.")
 
-                    # -------------------------------------------------
-                    # TABLA DETALLE
-                    # -------------------------------------------------
                     st.markdown("### Detalle del trazado")
                     columnas_detalle = [
                         c for c in [

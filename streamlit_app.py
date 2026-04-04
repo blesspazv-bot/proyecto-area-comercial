@@ -8,7 +8,6 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from io import BytesIO
 import unicodedata
 import plotly.express as px
 import pandas as pd
@@ -114,38 +113,34 @@ MODELOS = {
     },
 }
 
-und-repeat: no-repeat;
-            background-position: center 66%;
-            background-size: 200px;
-            background-attachment: fixed;
-        }}
 # =========================================================
 # ESTILO / LOGO CENTRAL TENUE
 # =========================================================
-def agregar_logo_central_tenue(ruta_logo: str):
-    if not os.path.exists(ruta_logo):
-        return
+st.markdown("""
+<style>
+.stApp {
+    background-image: url("logo_andes_motor.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 500px;
+}
 
-    with open(ruta_logo, "rb") as f:
-        logo_base64 = base64.b64encode(f.read()).decode()
-
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/png;base64,{logo_base64}");
-            backgro
-        .stApp::before {{
-            content: "";
-            position: fixed;
-            inset: 0;
-            background: rgba(255,255,255,0.982);
-            z-index: -1;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+.stApp::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url("logo_andes_motor.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 500px;
+    opacity: 0.05; /* 🔥 aquí controlas lo tenue */
+    z-index: -1;
+}
+</style>
+""", unsafe_allow_html=True)
 
 agregar_logo_central_tenue(LOGO_FILE)
 
@@ -748,10 +743,10 @@ with tab_hist:
     except Exception as e:
         st.error(f"No fue posible cargar el historial: {e}")
 
-# =========================================================
-# TAB 3 - EFICIENCIA ENERGÉTICA (VERSIÓN FINAL)
-# =========================================================
 
+# =========================================================
+# TAB 3 - EFICIENCIA ENERGÉTICA
+# =========================================================
 with tab_efi:
     import pandas as pd
     import plotly.graph_objects as go

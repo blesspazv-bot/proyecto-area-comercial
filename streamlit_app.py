@@ -114,6 +114,11 @@ MODELOS = {
     },
 }
 
+und-repeat: no-repeat;
+            background-position: center 66%;
+            background-size: 200px;
+            background-attachment: fixed;
+        }}
 # =========================================================
 # ESTILO / LOGO CENTRAL TENUE
 # =========================================================
@@ -129,12 +134,7 @@ def agregar_logo_central_tenue(ruta_logo: str):
         <style>
         .stApp {{
             background-image: url("data:image/png;base64,{logo_base64}");
-            background-repeat: no-repeat;
-            background-position: center 66%;
-            background-size: 220px;
-            background-attachment: fixed;
-        }}
-
+            backgro
         .stApp::before {{
             content: "";
             position: fixed;
@@ -1018,6 +1018,8 @@ with tab_efi:
             # =================================================
             # 7) RELOJES / GAUGES COMPACTOS
             # =================================================
+            st.markdown("<div style='height:25px;'></div>", unsafe_allow_html=True)
+
             g1, g2, g3 = st.columns(3)
 
             with g1:
@@ -1036,7 +1038,7 @@ with tab_efi:
                         "bar": {"color": "#15803d"},
                     }
                 ))
-                fig_g1.update_layout(height=220, margin=dict(l=5, r=5, t=30, b=5))
+                fig_g1.update_layout(height=240, margin=dict(l=5, r=5, t=45, b=10))
                 st.plotly_chart(fig_g1, use_container_width=True)
 
             with g2:
@@ -1055,7 +1057,7 @@ with tab_efi:
                         "bar": {"color": "#15803d"},
                     }
                 ))
-                fig_g2.update_layout(height=220, margin=dict(l=5, r=5, t=30, b=5))
+                fig_g2.update_layout(height=240, margin=dict(l=5, r=5, t=45, b=10))
                 st.plotly_chart(fig_g2, use_container_width=True)
 
             with g3:
@@ -1074,7 +1076,7 @@ with tab_efi:
                         "bar": {"color": "#166534"},
                     }
                 ))
-                fig_g3.update_layout(height=220, margin=dict(l=5, r=5, t=30, b=5))
+                fig_g3.update_layout(height=240, margin=dict(l=5, r=5, t=45, b=10))
                 st.plotly_chart(fig_g3, use_container_width=True)
 
             # =================================================

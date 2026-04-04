@@ -6,3 +6,5 @@ openpyxl
 altair
 plotly
 pydeck
+reportlab
+kaleido

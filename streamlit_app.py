@@ -1043,7 +1043,7 @@ with tab_efi:
                             )
                             fig_map.update_traces(marker={"size": 8, "color": "#dc2626"})
                             fig_map.update_layout(
-                                mapbox_style="carto-darkmatter",
+                                mapbox_style="carto-positron",
                                 margin={"r": 0, "t": 0, "l": 0, "b": 0}
                             )
                             st.plotly_chart(fig_map, use_container_width=True)

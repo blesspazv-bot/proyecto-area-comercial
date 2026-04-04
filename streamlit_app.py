@@ -8,7 +8,6 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import plotly.graph_objects as go
 import pydeck as pdk
 import pandas as pd
 import streamlit as st

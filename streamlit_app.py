@@ -927,7 +927,7 @@ with tab_efi:
                     # KPIS
                     # -------------------------------------------------
                     k1, k2, k3, k4 = st.columns(4)
-                    k1.metric("Rendimiento kWh/km", f"{rendimiento:.4f}" if rendimento := rendimiento is not None and not pd.isna(rendimiento) else "Sin dato")
+                    k1.metric("Rendimiento kWh/km", f"{rendimiento:.3f}" if rendimiento is not None and not pd.isna(rendimiento) else "Sin dato")
                     k2.metric("Autonomía proyectada", f"{autonomia:.1f} km" if autonomia is not None and not pd.isna(autonomia) else "Sin dato")
                     k3.metric("Velocidad promedio", f"{velocidad_prom:.1f} km/h" if velocidad_prom is not None and not pd.isna(velocidad_prom) else "Sin dato")
                     k4.metric("Kms recorridos", f"{distancia_km:.1f} km" if distancia_km is not None and not pd.isna(distancia_km) else "Sin dato")

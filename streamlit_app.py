@@ -750,203 +750,353 @@ with tab_hist:
 # =========================================================
 # TAB 3 - EFICIENCIA ENERGÉTICA (VERSIÓN FINAL)
 # =========================================================
+# =========================================================
+# TAB 3 - EFICIENCIA ENERGÉTICA
+# =========================================================
 with tab_efi:
-
     import pandas as pd
     import plotly.graph_objects as go
     import plotly.express as px
     import numpy as np
+    import unicodedata
 
     st.subheader("⚡ Eficiencia energética")
 
-    archivo = st.file_uploader("Subir Excel (.xlsx)", type=["xlsx"])
+    archivo = st.file_uploader("Subir Excel (.xlsx)", type=["xlsx"], key="efi_tab3")
 
+    # -----------------------------------------------------
+    # FUNCIONES AUXILIARES
+    # -----------------------------------------------------
     def norm(txt):
-        import unicodedata
-        if pd.isna(txt): return ""
+        if pd.isna(txt):
+            return ""
         txt = str(txt).lower().strip()
-        return unicodedata.normalize('NFKD', txt).encode('ascii','ignore').decode('utf-8')
+        return unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("utf-8")
+
+    def buscar_columna(cols, candidatos):
+        cols_norm = {norm(c): c for c in cols}
+        for cand in candidatos:
+            cand_n = norm(cand)
+            for c_n, c_real in cols_norm.items():
+                if cand_n in c_n:
+                    return c_real
+        return None
 
     if archivo:
         try:
-            # =============================
-            # 🔹 CARGA DE DATOS
-            # =============================
+            # =================================================
+            # 1) CARGA DE HOJAS
+            # =================================================
+            xls = pd.ExcelFile(archivo)
+            hojas = xls.sheet_names
+
+            if len(hojas) < 2:
+                st.error("El archivo debe traer al menos 2 hojas: base y resumen.")
+                st.stop()
+
             df_base = pd.read_excel(archivo, sheet_name=0)
             df_resumen = pd.read_excel(archivo, sheet_name=1)
 
+            # Guardamos copias originales para mostrar si hace falta
+            df_base_original = df_base.copy()
+            df_resumen_original = df_resumen.copy()
+
+            # Normalizamos nombres de columnas
             df_base.columns = [norm(c) for c in df_base.columns]
             df_resumen.columns = [norm(c) for c in df_resumen.columns]
 
-            # 🔥 DETECTAR LAT / LON AUTOMATICO
-            lat_col = None
-            lon_col = None
+            # =================================================
+            # 2) DETECCIÓN FLEXIBLE DE COLUMNAS
+            # =================================================
+            col_trazado_base = buscar_columna(df_base.columns, ["trazado", "ruta"])
+            col_odo = buscar_columna(df_base.columns, ["odometro", "odómetro"])
+            col_vel = buscar_columna(df_base.columns, ["velocidad"])
+            col_soc = buscar_columna(df_base.columns, ["soc", "estado de carga"])
+            col_alt = buscar_columna(df_base.columns, ["altitud", "altura"])
+            col_lat = buscar_columna(df_base.columns, ["latitud", "latitude", "lat"])
+            col_lon = buscar_columna(df_base.columns, ["longitud", "longitude", "long", "lon"])
 
-            for c in df_base.columns:
-                if "lat" in c:
-                    lat_col = c
-                if "lon" in c:
-                    lon_col = c or ("long" in c)
+            col_trazado_res = buscar_columna(df_resumen.columns, ["trazado", "ruta"])
+            col_distancia = buscar_columna(df_resumen.columns, ["distancia"])
+            col_consumo = buscar_columna(df_resumen.columns, ["consumo energetico", "consumo energético", "consumo"])
 
-            if not lat_col or not lon_col:
-                st.error("❌ No se encontraron columnas de latitud/longitud")
+            faltantes_base = []
+            if col_trazado_base is None: faltantes_base.append("trazado")
+            if col_odo is None: faltantes_base.append("odometro")
+            if col_vel is None: faltantes_base.append("velocidad")
+            if col_soc is None: faltantes_base.append("soc")
+            if col_alt is None: faltantes_base.append("altitud")
+            if col_lat is None: faltantes_base.append("latitud")
+            if col_lon is None: faltantes_base.append("longitud")
+
+            faltantes_res = []
+            if col_trazado_res is None: faltantes_res.append("trazado")
+            if col_distancia is None: faltantes_res.append("distancia")
+            if col_consumo is None: faltantes_res.append("consumo energetico")
+
+            if faltantes_base:
+                st.error(f"Faltan columnas en hoja base: {', '.join(faltantes_base)}")
                 st.stop()
 
-            # =============================
-            # NORMALIZAR TRAZADO
-            # =============================
-            df_base["trazado_key"] = df_base["trazado"].apply(norm)
-            df_resumen["trazado_key"] = df_resumen["trazado"].apply(norm)
+            if faltantes_res:
+                st.error(f"Faltan columnas en hoja resumen: {', '.join(faltantes_res)}")
+                st.stop()
 
-            trazados = df_resumen["trazado"].dropna().unique()
-            trazado_sel = st.selectbox("Seleccionar trazado", trazados)
+            # =================================================
+            # 3) NORMALIZACIÓN DE DATOS
+            # =================================================
+            df_base["trazado_key"] = df_base[col_trazado_base].astype(str).apply(norm)
+            df_resumen["trazado_key"] = df_resumen[col_trazado_res].astype(str).apply(norm)
+
+            df_base["odometro"] = pd.to_numeric(df_base[col_odo], errors="coerce")
+            df_base["velocidad"] = pd.to_numeric(df_base[col_vel], errors="coerce")
+            df_base["soc"] = pd.to_numeric(df_base[col_soc], errors="coerce")
+            df_base["altitud"] = pd.to_numeric(df_base[col_alt], errors="coerce")
+            df_base["lat"] = pd.to_numeric(df_base[col_lat], errors="coerce")
+            df_base["lon"] = pd.to_numeric(df_base[col_lon], errors="coerce")
+
+            df_resumen["distancia_calc"] = pd.to_numeric(df_resumen[col_distancia], errors="coerce")
+            df_resumen["consumo_calc"] = pd.to_numeric(df_resumen[col_consumo], errors="coerce")
+
+            trazados = (
+                df_resumen[[col_trazado_res, "trazado_key"]]
+                .dropna()
+                .drop_duplicates()
+                .rename(columns={col_trazado_res: "trazado"})
+                .sort_values("trazado")
+            )
+
+            if trazados.empty:
+                st.error("No se encontraron trazados válidos.")
+                st.stop()
+
+            # =================================================
+            # 4) SELECTOR Y BATERÍA
+            # =================================================
+            csel1, csel2 = st.columns([2, 1])
+
+            with csel1:
+                trazado_sel = st.selectbox("Seleccionar trazado", trazados["trazado"].tolist())
+
+            with csel2:
+                bateria = st.selectbox("Batería HV (kWh)", [231.8, 255.0, 266.0, 310.0, 382.0], index=1)
 
             key = norm(trazado_sel)
 
-            base = df_base[df_base["trazado_key"] == key].copy().sort_values("odometro")
-            res = df_resumen[df_resumen["trazado_key"] == key].iloc[0]
+            base = df_base[df_base["trazado_key"] == key].copy()
+            base = base.dropna(subset=["odometro"]).sort_values("odometro")
 
-            # =============================
-            # 🔥 CALCULOS (SOLO HOJA 2)
-            # =============================
-            distancia = float(res["distancia"])
-            consumo = float(res["consumo energetico"])
+            resumen_sel = df_resumen[df_resumen["trazado_key"] == key]
 
-            rendimiento = consumo / distancia if distancia > 0 else None
+            if resumen_sel.empty:
+                st.error("No se encontró el trazado en la hoja resumen.")
+                st.stop()
 
-            bateria = st.selectbox("Batería (kWh)", [231.8, 255, 266, 310, 382])
-            autonomia = bateria / rendimiento if rendimiento else None
+            res = resumen_sel.iloc[0]
 
-            vel_prom = base["velocidad"].mean()
+            # =================================================
+            # 5) CÁLCULOS SOLO DESDE HOJA 2
+            # =================================================
+            distancia = float(res["distancia_calc"]) if pd.notna(res["distancia_calc"]) else None
+            consumo = float(res["consumo_calc"]) if pd.notna(res["consumo_calc"]) else None
 
-            # =============================
-            # KPIs
-            # =============================
-            c1,c2,c3,c4 = st.columns(4)
+            if distancia is None or distancia <= 0:
+                st.error("La distancia de la hoja resumen no es válida.")
+                st.stop()
 
+            if consumo is None or consumo <= 0:
+                st.error("El consumo energético de la hoja resumen no es válido.")
+                st.stop()
+
+            rendimiento = consumo / distancia
+            autonomia = bateria / rendimiento if rendimiento > 0 else None
+
+            vel_prom = base["velocidad"].mean() if base["velocidad"].notna().any() else None
+
+            # =================================================
+            # 6) KPIs
+            # =================================================
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("Rendimiento", f"{rendimiento:.3f} kWh/km")
-            c2.metric("Autonomía", f"{autonomia:.0f} km")
-            c3.metric("Velocidad promedio", f"{vel_prom:.1f} km/h")
+            c2.metric("Autonomía proyectada", f"{autonomia:.0f} km" if autonomia is not None else "Sin dato")
+            c3.metric("Velocidad promedio", f"{vel_prom:.1f} km/h" if vel_prom is not None else "Sin dato")
             c4.metric("Distancia", f"{distancia:.1f} km")
 
-            # =============================
-            # 🔥 RELOJES
-            # =============================
-            g1,g2 = st.columns(2)
+            # =================================================
+            # 7) RELOJES / GAUGES
+            # =================================================
+            g1, g2 = st.columns(2)
 
             with g1:
-                fig = go.Figure(go.Indicator(
+                fig_g1 = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=rendimiento,
-                    number={'suffix': " kWh/km"},
-                    title={'text': "Rendimiento"},
+                    number={"suffix": " kWh/km"},
+                    title={"text": "Rendimiento"},
                     gauge={
-                        'axis': {'range': [0,1.2]},
-                        'steps':[
-                            {'range':[0,0.9],'color':'#22c55e'},
-                            {'range':[0.9,1.0],'color':'#facc15'},
-                            {'range':[1.0,1.2],'color':'#ef4444'}
-                        ]
+                        "axis": {"range": [0, 1.2]},
+                        "steps": [
+                            {"range": [0, 0.90], "color": "#22c55e"},
+                            {"range": [0.90, 1.00], "color": "#facc15"},
+                            {"range": [1.00, 1.20], "color": "#ef4444"},
+                        ],
+                        "bar": {"color": "#15803d"},
                     }
                 ))
-                st.plotly_chart(fig, use_container_width=True)
+                fig_g1.update_layout(height=260, margin=dict(l=10, r=10, t=40, b=10))
+                st.plotly_chart(fig_g1, use_container_width=True)
 
             with g2:
-                fig = go.Figure(go.Indicator(
+                fig_g2 = go.Figure(go.Indicator(
                     mode="gauge+number",
-                    value=autonomia,
-                    number={'suffix': " km"},
-                    title={'text': "Autonomía"},
+                    value=autonomia if autonomia is not None else 0,
+                    number={"suffix": " km"},
+                    title={"text": f"Autonomía proyectada ({bateria:.0f} kWh)"},
                     gauge={
-                        'axis': {'range':[0,500]},
-                        'steps':[
-                            {'range':[0,280],'color':'#ef4444'},
-                            {'range':[280,350],'color':'#facc15'},
-                            {'range':[350,500],'color':'#22c55e'}
-                        ]
+                        "axis": {"range": [0, 500]},
+                        "steps": [
+                            {"range": [0, 280], "color": "#ef4444"},
+                            {"range": [280, 350], "color": "#facc15"},
+                            {"range": [350, 500], "color": "#22c55e"},
+                        ],
+                        "bar": {"color": "#15803d"},
                     }
                 ))
-                st.plotly_chart(fig, use_container_width=True)
+                fig_g2.update_layout(height=260, margin=dict(l=10, r=10, t=40, b=10))
+                st.plotly_chart(fig_g2, use_container_width=True)
 
-            # =============================
-            # 📈 GRAFICO LIMPIO (SOLUCION LINEAS RARAS)
-            # =============================
+            # =================================================
+            # 8) VELOCIDAD VS SOC
+            # =================================================
             st.markdown("### Velocidad y Estado de Carga")
 
-            fig = go.Figure()
+            fig_vs = go.Figure()
 
-            fig.add_trace(go.Scatter(
+            fig_vs.add_trace(go.Scatter(
                 x=base["odometro"],
                 y=base["velocidad"],
-                mode='lines',
-                name='Velocidad',
-                line=dict(width=3)
+                mode="lines+markers",
+                name="Velocidad",
+                line=dict(color="#2563eb", width=3, shape="spline"),
+                marker=dict(size=5)
             ))
 
-            if "soc" in base.columns:
-                fig.add_trace(go.Scatter(
+            if base["soc"].notna().any():
+                fig_vs.add_trace(go.Scatter(
                     x=base["odometro"],
                     y=base["soc"],
-                    mode='lines',
-                    name='SoC',
+                    mode="lines+markers",
+                    name="SoC",
                     yaxis="y2",
-                    line=dict(width=3)
+                    line=dict(color="#60a5fa", width=3, shape="spline"),
+                    marker=dict(size=4)
                 ))
 
-            fig.update_layout(
-                yaxis=dict(title="Velocidad"),
-                yaxis2=dict(overlaying='y', side='right', title="SoC"),
-                height=350
+            fig_vs.update_layout(
+                height=380,
+                margin=dict(l=10, r=10, t=20, b=10),
+                xaxis=dict(title="Odómetro km"),
+                yaxis=dict(title="Velocidad km/h"),
+                yaxis2=dict(
+                    title="Estado de carga SoC",
+                    overlaying="y",
+                    side="right"
+                ),
+                legend=dict(orientation="h")
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_vs, use_container_width=True)
 
-            # =============================
-            # 🗺️ MAPA SATELITAL PRO (FIX REAL)
-            # =============================
+            # =================================================
+            # 9) MAPA DEL RECORRIDO
+            # =================================================
             st.markdown("### 🛰️ Mapa del recorrido")
 
-            mapa = base.dropna(subset=[lat_col, lon_col])
+            mapa = base.dropna(subset=["lat", "lon"]).copy()
 
-            fig_map = px.scatter_mapbox(
-                mapa,
-                lat=lat_col,
-                lon=lon_col,
-                zoom=14,
-                height=500
-            )
+            if mapa.empty:
+                st.warning("No hay coordenadas válidas para mostrar el mapa.")
+            else:
+                mapa["tipo_punto"] = "Punto recorrido"
+                mapa_inicio = mapa.iloc[[0]].copy()
+                mapa_inicio["tipo_punto"] = "Inicio"
+                mapa_fin = mapa.iloc[[-1]].copy()
+                mapa_fin["tipo_punto"] = "Fin"
 
-            fig_map.add_scattermapbox(
-                lat=mapa[lat_col],
-                lon=mapa[lon_col],
-                mode="lines",
-                line=dict(width=4)
-            )
+                mapa_plot = pd.concat([mapa, mapa_inicio, mapa_fin], ignore_index=True)
 
-            fig_map.update_layout(
-                mapbox_style="satellite-streets"
-            )
+                fig_map = px.scatter_mapbox(
+                    mapa_plot,
+                    lat="lat",
+                    lon="lon",
+                    color="tipo_punto",
+                    color_discrete_map={
+                        "Punto recorrido": "#1d4ed8",
+                        "Inicio": "#16a34a",
+                        "Fin": "#dc2626"
+                    },
+                    hover_data={
+                        "odometro": True,
+                        "velocidad": True,
+                        "soc": True,
+                        "lat": False,
+                        "lon": False
+                    },
+                    zoom=12,
+                    height=520
+                )
 
-            st.plotly_chart(fig_map, use_container_width=True)
+                fig_map.add_trace(go.Scattermapbox(
+                    lat=mapa["lat"],
+                    lon=mapa["lon"],
+                    mode="lines",
+                    line=dict(width=4, color="#2563eb"),
+                    name="Ruta"
+                ))
 
-            # =============================
-            # 📊 PERFIL ALTURA
-            # =============================
-            if "altitud" in base.columns:
+                fig_map.update_layout(
+                    mapbox_style="open-street-map",
+                    margin=dict(r=0, t=0, l=0, b=0),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1)
+                )
+
+                st.plotly_chart(fig_map, use_container_width=True)
+
+            # =================================================
+            # 10) PERFIL DE ALTURA
+            # =================================================
+            if base["altitud"].notna().any():
                 st.markdown("### Perfil de altura")
 
                 fig_alt = go.Figure()
-
                 fig_alt.add_trace(go.Scatter(
                     x=base["odometro"],
                     y=base["altitud"],
-                    fill='tozeroy',
-                    mode='lines',
-                    line=dict(width=3)
+                    fill="tozeroy",
+                    mode="lines",
+                    line=dict(color="#3b82f6", width=3, shape="spline")
                 ))
 
-                fig_alt.update_layout(height=300)
+                fig_alt.update_layout(
+                    height=320,
+                    margin=dict(l=10, r=10, t=20, b=10),
+                    xaxis=dict(title="Odómetro"),
+                    yaxis=dict(title="Altura (m)")
+                )
+
                 st.plotly_chart(fig_alt, use_container_width=True)
+
+            # =================================================
+            # 11) TABLA RESUMEN VISIBLE
+            # =================================================
+            st.markdown("### Tabla resumen")
+            st.dataframe(df_resumen_original, use_container_width=True)
+
+            # =================================================
+            # 12) DETALLE OCULTO
+            # =================================================
+            with st.expander("Ver detalle de la base"):
+                st.dataframe(df_base_original.head(200), use_container_width=True)
 
         except Exception as e:
             st.error(f"Error: {e}")

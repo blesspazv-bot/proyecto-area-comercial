@@ -12,6 +12,47 @@ import unicodedata
 import plotly.express as px
 import pandas as pd
 import streamlit as st
+import os
+import base64
+def agregar_logo_central_tenue(ruta_logo: str):
+    if not os.path.exists(ruta_logo):
+        return
+
+    with open(ruta_logo, "rb") as f:
+        logo_base64 = base64.b64encode(f.read()).decode()
+
+    st.markdown(
+        f"""
+        <style>
+
+        .stApp {{
+            background-color: white;
+        }}
+
+        .stApp::after {{
+            content: "";
+            position: fixed;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 400px;
+            height: 400px;
+
+            background-image: url("data:image/png;base64,{logo_base64}");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+
+            opacity: 0.03;
+            z-index: 0;
+            pointer-events: none;
+        }}
+
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
 import altair as alt
 from docxtpl import DocxTemplate, RichText
 
@@ -32,6 +73,8 @@ except ImportError:
 # =========================================================
 st.set_page_config(
     page_title="APP Área Comercial Buses y Vans",
+    LOGO_FILE = "logo_andes_motor.png",
+    agregar_logo_central_tenue(LOGO_FILE),
     page_icon="🚌",
     layout="wide"
 )
@@ -136,13 +179,12 @@ st.markdown("""
     background-repeat: no-repeat;
     background-position: center;
     background-size: 500px;
-    opacity: 0.05; /* 🔥 aquí controlas lo tenue */
+    opacity: 0.04;
     z-index: -1;
 }
 </style>
 """, unsafe_allow_html=True)
 
-agregar_logo_central_tenue(LOGO_FILE)
 
 # =========================================================
 # UTILIDADES

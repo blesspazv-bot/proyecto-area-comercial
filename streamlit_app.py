@@ -71,8 +71,6 @@ except ImportError:
 # =========================================================
 st.set_page_config(
     page_title="APP Área Comercial Buses y Vans",
-    LOGO_FILE = "logo_andes_motor.png",
-    agregar_logo_central_tenue(LOGO_FILE),
     page_icon="🚌",
     layout="wide"
 )

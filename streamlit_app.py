@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from io import BytesIO
 import unicodedata
 import plotly.express as px
 import pandas as pd
@@ -750,15 +751,20 @@ with tab_hist:
 # =========================================================
 # TAB 3 - EFICIENCIA ENERGÉTICA (VERSIÓN FINAL)
 # =========================================================
-# =========================================================
-# TAB 3 - EFICIENCIA ENERGÉTICA
-# =========================================================
+
 with tab_efi:
     import pandas as pd
     import plotly.graph_objects as go
     import plotly.express as px
-    import numpy as np
     import unicodedata
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    )
+    from reportlab.lib.styles import getSampleStyleSheet
 
     st.subheader("⚡ Eficiencia energética")
 
@@ -782,6 +788,91 @@ with tab_efi:
                     return c_real
         return None
 
+    def fig_to_png_bytes(fig, width=1000, height=500):
+        return fig.to_image(format="png", width=width, height=height, scale=2)
+
+    def generar_pdf_ejecutivo(
+        trazado,
+        bateria,
+        distancia,
+        consumo,
+        rendimiento,
+        autonomia_total,
+        autonomia_15,
+        vel_prom,
+        fig_vs,
+        fig_map,
+        fig_alt
+    ):
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=1.2 * cm,
+            leftMargin=1.2 * cm,
+            topMargin=1.0 * cm,
+            bottomMargin=1.0 * cm
+        )
+
+        styles = getSampleStyleSheet()
+        story = []
+
+        titulo = Paragraph(f"<b>Informe Eficiencia Energética - {trazado}</b>", styles["Title"])
+        story.append(titulo)
+        story.append(Spacer(1, 0.3 * cm))
+
+        subt = Paragraph("Resumen ejecutivo del recorrido seleccionado", styles["Heading2"])
+        story.append(subt)
+        story.append(Spacer(1, 0.2 * cm))
+
+        data = [
+            ["Indicador", "Valor"],
+            ["Trazado", str(trazado)],
+            ["Batería HV", f"{bateria:.1f} kWh"],
+            ["Distancia", f"{distancia:.1f} km"],
+            ["Consumo energético", f"{consumo:.2f} kWh"],
+            ["Rendimiento", f"{rendimiento:.3f} kWh/km"],
+            ["Autonomía proyectada", f"{autonomia_total:.0f} km"],
+            ["Autonomía útil al 15% SoC", f"{autonomia_15:.0f} km"],
+            ["Velocidad promedio", f"{vel_prom:.1f} km/h"],
+        ]
+
+        tabla = Table(data, colWidths=[7 * cm, 7 * cm])
+        tabla.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4e78")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        story.append(tabla)
+        story.append(Spacer(1, 0.5 * cm))
+
+        story.append(Paragraph("<b>Velocidad y Estado de Carga</b>", styles["Heading3"]))
+        img1 = Image(BytesIO(fig_to_png_bytes(fig_vs, 1200, 450)))
+        img1.drawWidth = 17 * cm
+        img1.drawHeight = 6.5 * cm
+        story.append(img1)
+        story.append(Spacer(1, 0.3 * cm))
+
+        story.append(Paragraph("<b>Mapa del recorrido</b>", styles["Heading3"]))
+        img2 = Image(BytesIO(fig_to_png_bytes(fig_map, 1200, 600)))
+        img2.drawWidth = 17 * cm
+        img2.drawHeight = 8.2 * cm
+        story.append(img2)
+        story.append(Spacer(1, 0.3 * cm))
+
+        story.append(Paragraph("<b>Perfil de altura</b>", styles["Heading3"]))
+        img3 = Image(BytesIO(fig_to_png_bytes(fig_alt, 1200, 400)))
+        img3.drawWidth = 17 * cm
+        img3.drawHeight = 5.8 * cm
+        story.append(img3)
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.getvalue()
+
     if archivo:
         try:
             # =================================================
@@ -797,11 +888,9 @@ with tab_efi:
             df_base = pd.read_excel(archivo, sheet_name=0)
             df_resumen = pd.read_excel(archivo, sheet_name=1)
 
-            # Guardamos copias originales para mostrar si hace falta
             df_base_original = df_base.copy()
             df_resumen_original = df_resumen.copy()
 
-            # Normalizamos nombres de columnas
             df_base.columns = [norm(c) for c in df_base.columns]
             df_resumen.columns = [norm(c) for c in df_resumen.columns]
 
@@ -911,6 +1000,10 @@ with tab_efi:
             rendimiento = consumo / distancia
             autonomia = bateria / rendimiento if rendimiento > 0 else None
 
+            # nueva autonomía considerando 15% de reserva SoC
+            bateria_util_15 = bateria * 0.85
+            autonomia_15 = bateria_util_15 / rendimiento if rendimiento > 0 else None
+
             vel_prom = base["velocidad"].mean() if base["velocidad"].notna().any() else None
 
             # =================================================
@@ -923,18 +1016,18 @@ with tab_efi:
             c4.metric("Distancia", f"{distancia:.1f} km")
 
             # =================================================
-            # 7) RELOJES / GAUGES
+            # 7) RELOJES / GAUGES COMPACTOS
             # =================================================
-            g1, g2 = st.columns(2)
+            g1, g2, g3 = st.columns(3)
 
             with g1:
                 fig_g1 = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=rendimiento,
-                    number={"suffix": " kWh/km"},
-                    title={"text": "Rendimiento"},
+                    number={"suffix": " kWh/km", "font": {"size": 26}},
+                    title={"text": "Rendimiento", "font": {"size": 18}},
                     gauge={
-                        "axis": {"range": [0, 1.2]},
+                        "axis": {"range": [0, 1.2], "tickfont": {"size": 11}},
                         "steps": [
                             {"range": [0, 0.90], "color": "#22c55e"},
                             {"range": [0.90, 1.00], "color": "#facc15"},
@@ -943,17 +1036,17 @@ with tab_efi:
                         "bar": {"color": "#15803d"},
                     }
                 ))
-                fig_g1.update_layout(height=260, margin=dict(l=10, r=10, t=40, b=10))
+                fig_g1.update_layout(height=220, margin=dict(l=5, r=5, t=30, b=5))
                 st.plotly_chart(fig_g1, use_container_width=True)
 
             with g2:
                 fig_g2 = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=autonomia if autonomia is not None else 0,
-                    number={"suffix": " km"},
-                    title={"text": f"Autonomía proyectada ({bateria:.0f} kWh)"},
+                    number={"suffix": " km", "font": {"size": 26}},
+                    title={"text": f"Autonomía total ({bateria:.0f} kWh)", "font": {"size": 16}},
                     gauge={
-                        "axis": {"range": [0, 500]},
+                        "axis": {"range": [0, 500], "tickfont": {"size": 11}},
                         "steps": [
                             {"range": [0, 280], "color": "#ef4444"},
                             {"range": [280, 350], "color": "#facc15"},
@@ -962,8 +1055,27 @@ with tab_efi:
                         "bar": {"color": "#15803d"},
                     }
                 ))
-                fig_g2.update_layout(height=260, margin=dict(l=10, r=10, t=40, b=10))
+                fig_g2.update_layout(height=220, margin=dict(l=5, r=5, t=30, b=5))
                 st.plotly_chart(fig_g2, use_container_width=True)
+
+            with g3:
+                fig_g3 = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=autonomia_15 if autonomia_15 is not None else 0,
+                    number={"suffix": " km", "font": {"size": 26}},
+                    title={"text": f"Autonomía útil al 15% SoC", "font": {"size": 16}},
+                    gauge={
+                        "axis": {"range": [0, 500], "tickfont": {"size": 11}},
+                        "steps": [
+                            {"range": [0, 250], "color": "#ef4444"},
+                            {"range": [250, 320], "color": "#facc15"},
+                            {"range": [320, 500], "color": "#22c55e"},
+                        ],
+                        "bar": {"color": "#166534"},
+                    }
+                ))
+                fig_g3.update_layout(height=220, margin=dict(l=5, r=5, t=30, b=5))
+                st.plotly_chart(fig_g3, use_container_width=True)
 
             # =================================================
             # 8) VELOCIDAD VS SOC
@@ -1016,6 +1128,7 @@ with tab_efi:
 
             if mapa.empty:
                 st.warning("No hay coordenadas válidas para mostrar el mapa.")
+                fig_map = go.Figure()
             else:
                 mapa["tipo_punto"] = "Punto recorrido"
                 mapa_inicio = mapa.iloc[[0]].copy()
@@ -1085,15 +1198,44 @@ with tab_efi:
                 )
 
                 st.plotly_chart(fig_alt, use_container_width=True)
+            else:
+                fig_alt = go.Figure()
 
             # =================================================
-            # 11) TABLA RESUMEN VISIBLE
+            # 11) BOTÓN PDF EJECUTIVO
+            # =================================================
+            try:
+                pdf_bytes = generar_pdf_ejecutivo(
+                    trazado=trazado_sel,
+                    bateria=bateria,
+                    distancia=distancia,
+                    consumo=consumo,
+                    rendimiento=rendimiento,
+                    autonomia_total=autonomia,
+                    autonomia_15=autonomia_15,
+                    vel_prom=vel_prom,
+                    fig_vs=fig_vs,
+                    fig_map=fig_map,
+                    fig_alt=fig_alt
+                )
+
+                st.download_button(
+                    "📄 Descargar informe PDF",
+                    data=pdf_bytes,
+                    file_name=f"Informe_Eficiencia_{trazado_sel.replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
+            except Exception as e_pdf:
+                st.warning(f"No fue posible generar el PDF: {e_pdf}")
+
+            # =================================================
+            # 12) TABLA RESUMEN VISIBLE
             # =================================================
             st.markdown("### Tabla resumen")
             st.dataframe(df_resumen_original, use_container_width=True)
 
             # =================================================
-            # 12) DETALLE OCULTO
+            # 13) DETALLE OCULTO
             # =================================================
             with st.expander("Ver detalle de la base"):
                 st.dataframe(df_base_original.head(200), use_container_width=True)

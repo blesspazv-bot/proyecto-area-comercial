@@ -862,6 +862,16 @@ with tab_efi:
                             resumen[c] = pd.to_numeric(resumen[c], errors="coerce")
 
                 # -------------------------------------------------
+                # DATOS OCULTOS EN EXPANDERS
+                # -------------------------------------------------
+                with st.expander("Ver tabla resumen"):
+                    if df_resumen_excel is not None:
+                        st.dataframe(df_resumen_excel, use_container_width=True)
+
+                with st.expander("Ver datos hoja principal"):
+                    st.dataframe(df.head(10), use_container_width=True)
+
+                # -------------------------------------------------
                 # SELECTOR DE TRAZADO
                 # -------------------------------------------------
                 trazados_df = (
@@ -1032,60 +1042,61 @@ with tab_efi:
                         st.altair_chart(chart, use_container_width=True)
 
                     with c2:
-    st.markdown("### Mapa del trazado")
+                        st.markdown("### Mapa del trazado")
 
-    mapa = vista.dropna(subset=["lat", "lon"]).copy()
+                        mapa = vista.dropna(subset=["lat", "lon"]).copy()
 
-    if not mapa.empty:
-        mapa = mapa.sort_values("odometro").copy()
-        mapa["tooltip"] = (
-            "Trazado: " + mapa["trazado_raw"].astype(str)
-            + "\nOdómetro: " + mapa["odometro"].round(1).astype(str)
-            + "\nVelocidad: " + mapa["velocidad"].round(1).astype(str)
-            + "\nSoC: " + mapa["soc"].round(1).astype(str)
-        )
+                        if not mapa.empty:
+                            mapa = mapa.sort_values("odometro").copy()
 
-        path_data = [{"path": mapa[["lon", "lat"]].values.tolist()}]
+                            mapa["tooltip"] = (
+                                "Trazado: " + mapa["trazado_raw"].astype(str)
+                                + "\nOdómetro: " + mapa["odometro"].round(1).astype(str)
+                                + "\nVelocidad: " + mapa["velocidad"].round(1).astype(str)
+                                + "\nSoC: " + mapa["soc"].round(1).astype(str)
+                            )
 
-        layer_path = pdk.Layer(
-            "PathLayer",
-            data=path_data,
-            get_path="path",
-            get_color=[0, 102, 204],
-            width_scale=20,
-            width_min_pixels=4,
-            pickable=False
-        )
+                            path_data = [{"path": mapa[["lon", "lat"]].values.tolist()}]
 
-        layer_points = pdk.Layer(
-            "ScatterplotLayer",
-            data=mapa,
-            get_position="[lon, lat]",
-            get_fill_color="[220, 38, 38, 180]",
-            get_radius=18,
-            pickable=True
-        )
+                            layer_path = pdk.Layer(
+                                "PathLayer",
+                                data=path_data,
+                                get_path="path",
+                                get_color=[0, 102, 204],
+                                width_scale=20,
+                                width_min_pixels=4,
+                                pickable=False
+                            )
 
-        view_state = pdk.ViewState(
-            latitude=float(mapa["lat"].mean()),
-            longitude=float(mapa["lon"].mean()),
-            zoom=11.5,
-            pitch=0
-        )
+                            layer_points = pdk.Layer(
+                                "ScatterplotLayer",
+                                data=mapa,
+                                get_position="[lon, lat]",
+                                get_fill_color="[220, 38, 38, 180]",
+                                get_radius=18,
+                                pickable=True
+                            )
 
-        deck = pdk.Deck(
-            layers=[layer_path, layer_points],
-            initial_view_state=view_state,
-            map_style="mapbox://styles/mapbox/satellite-v9" if os.getenv("MAPBOX_TOKEN") else "road",
-            tooltip={"text": "{tooltip}"}
-        )
+                            view_state = pdk.ViewState(
+                                latitude=float(mapa["lat"].mean()),
+                                longitude=float(mapa["lon"].mean()),
+                                zoom=11.5,
+                                pitch=0
+                            )
 
-        st.pydeck_chart(deck, use_container_width=True)
+                            deck = pdk.Deck(
+                                layers=[layer_path, layer_points],
+                                initial_view_state=view_state,
+                                map_style="mapbox://styles/mapbox/satellite-v9" if os.getenv("MAPBOX_TOKEN") else "road",
+                                tooltip={"text": "{tooltip}"}
+                            )
 
-        if not os.getenv("MAPBOX_TOKEN"):
-            st.caption("Mapa satelital real requiere MAPBOX_TOKEN. Se muestra mapa alternativo estable.")
-    else:
-        st.info("No hay coordenadas válidas para el trazado seleccionado.")
+                            st.pydeck_chart(deck, use_container_width=True)
+
+                            if not os.getenv("MAPBOX_TOKEN"):
+                                st.caption("Mapa satelital real requiere MAPBOX_TOKEN. Se muestra mapa alternativo estable.")
+                        else:
+                            st.info("No hay coordenadas válidas para el trazado seleccionado.")
 
                     st.markdown("### Perfil de altura")
 
@@ -1108,13 +1119,6 @@ with tab_efi:
                         st.plotly_chart(fig_alt, use_container_width=True)
                     else:
                         st.info("No hay datos de altitud.")
-
-                    # -------------------------------------------------
-                    # DATOS OCULTOS
-                    # -------------------------------------------------
-                    with st.expander("Ver tabla resumen"):
-                        if df_resumen_excel is not None:
-                            st.dataframe(df_resumen_excel, use_container_width=True)
 
                     with st.expander("Ver detalle del trazado"):
                         columnas_detalle = [

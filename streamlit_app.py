@@ -1042,67 +1042,67 @@ with tab_efi:
                         st.altair_chart(chart, use_container_width=True)
 
                     with c2:
-                    st.markdown("### Mapa del trazado")
+                        st.markdown("### Mapa del trazado")
 
-                    mapa = vista.dropna(subset=["lat", "lon"]).copy()
+                        mapa = vista.dropna(subset=["lat", "lon"]).copy()
 
-                    if not mapa.empty:
-                        mapa = mapa.sort_values("odometro").copy()
+                        if not mapa.empty:
+                            mapa = mapa.sort_values("odometro").copy()
 
-                        mapa["tooltip"] = (
-                             "Trazado: " + mapa["trazado_raw"].astype(str)
-                            + "\nOdómetro: " + mapa["odometro"].round(1).astype(str)
-                            + "\nVelocidad: " + mapa["velocidad"].round(1).astype(str)
-                            + "\nSoC: " + mapa["soc"].round(1).astype(str)
-                    )
+                            mapa["tooltip"] = (
+                                "Trazado: " + mapa["trazado_raw"].astype(str)
+                                + "\nOdómetro: " + mapa["odometro"].round(1).astype(str)
+                                + "\nVelocidad: " + mapa["velocidad"].round(1).astype(str)
+                                + "\nSoC: " + mapa["soc"].round(1).astype(str)
+                        )
 
-                    path_data = [{"path": mapa[["lon", "lat"]].values.tolist()}]
+                         path_data = [{"path": mapa[["lon", "lat"]].values.tolist()}]
 
-                    layer_path = pdk.Layer(
-                         "PathLayer",
-                         data=path_data,
-                         get_path="path",
-                         get_color=[0, 102, 204],
-                         width_scale=20,
-                         width_min_pixels=4,
-                         pickable=False
-                    )
+                        layer_path = pdk.Layer(
+                            "PathLayer",
+                            data=path_data,
+                            get_path="path",
+                            get_color=[0, 102, 204],
+                            width_scale=20,
+                            width_min_pixels=4,
+                            pickable=False
+                        )
 
-                    layer_points = pdk.Layer(
-                        "ScatterplotLayer",
-                        data=mapa,
-                        get_position="[lon, lat]",
-                        get_fill_color="[220, 38, 38, 180]",
-                        get_radius=20,
-                        pickable=True
-                    )
+                        layer_points = pdk.Layer(
+                            "ScatterplotLayer",
+                            data=mapa,
+                            get_position="[lon, lat]",
+                            get_fill_color="[220, 38, 38, 180]",
+                            get_radius=20,
+                            pickable=True
+                        )
 
-                    view_state = pdk.ViewState(
-                        latitude=float(mapa["lat"].mean()),
-                        longitude=float(mapa["lon"].mean()),
-                        zoom=12,
-                        pitch=35
-                    )
+                        view_state = pdk.ViewState(
+                            latitude=float(mapa["lat"].mean()),
+                            longitude=float(mapa["lon"].mean()),
+                            zoom=12,
+                            pitch=35
+                        )
 
-                    # satelital si existe token, si no usa LIGHT que se ve mucho mejor
-                    if os.getenv("MAPBOX_TOKEN"):
-                        estilo_mapa = pdk.map_styles.SATELLITE
+                        # satelital si existe token, si no usa LIGHT que se ve mucho mejor
+                        if os.getenv("MAPBOX_TOKEN"):
+                            estilo_mapa = pdk.map_styles.SATELLITE
+                        else:
+                            estilo_mapa = pdk.map_styles.LIGHT
+
+                        deck = pdk.Deck(
+                            layers=[layer_path, layer_points],
+                            initial_view_state=view_state,
+                            map_style=estilo_mapa,
+                            tooltip={"text": "{tooltip}"}
+                        )
+
+                        st.pydeck_chart(deck, use_container_width=True)
+
+                        if not os.getenv("MAPBOX_TOKEN"):
+                            st.caption("Se muestra mapa base claro. Para satelital real debes definir MAPBOX_TOKEN.")
                     else:
-                        estilo_mapa = pdk.map_styles.LIGHT
-
-                    deck = pdk.Deck(
-                        layers=[layer_path, layer_points],
-                        initial_view_state=view_state,
-                        map_style=estilo_mapa,
-                        tooltip={"text": "{tooltip}"}
-                    )
-
-                    st.pydeck_chart(deck, use_container_width=True)
-
-                    if not os.getenv("MAPBOX_TOKEN"):
-                        st.caption("Se muestra mapa base claro. Para satelital real debes definir MAPBOX_TOKEN.")
-                else:
-                    st.info("No hay coordenadas válidas para el trazado seleccionado.")
+                        st.info("No hay coordenadas válidas para el trazado seleccionado.")
 
                     st.markdown("### Perfil de altura")
 

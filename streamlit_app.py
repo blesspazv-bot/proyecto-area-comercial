@@ -7,64 +7,27 @@ import base64
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from io import BytesIO
 
 import unicodedata
-import plotly.express as px
 import pandas as pd
+import plotly.express as px
 import streamlit as st
-def agregar_logo_central_tenue(ruta_logo: str):
-    if not os.path.exists(ruta_logo):
-        return
-
-    with open(ruta_logo, "rb") as f:
-        logo_base64 = base64.b64encode(f.read()).decode()
-
-    st.markdown(
-        f"""
-        <style>
-
-        .stApp {{
-            background-color: white;
-        }}
-
-        .stApp::after {{
-            content: "";
-            position: fixed;
-            top: 60%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 400px;
-            height: 400px;
-
-            background-image: url("data:image/png;base64,{logo_base64}");
-            background-repeat: no-repeat;
-            background-position: center;
-            background-size: contain;
-
-            opacity: 0.03;
-            z-index: 0;
-            pointer-events: none;
-        }}
-
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
 import altair as alt
 from docxtpl import DocxTemplate, RichText
 
 try:
     import plotly.graph_objects as go
 except ImportError:
-    st.error("Falta instalar plotly. Ejecuta: pip install plotly")
+    st.error("Falta instalar plotly. Ejecuta o agrega en requirements.txt: plotly")
     st.stop()
 
 try:
     import pydeck as pdk
 except ImportError:
-    st.error("Falta instalar pydeck. Ejecuta: pip install pydeck")
+    st.error("Falta instalar pydeck. Ejecuta o agrega en requirements.txt: pydeck")
     st.stop()
+
 
 # =========================================================
 # CONFIGURACION GENERAL
@@ -77,6 +40,44 @@ st.set_page_config(
 
 DB_FILE = "cotizaciones.db"
 LOGO_FILE = "logo_andes_motor.png"
+
+
+def agregar_logo_central_tenue(ruta_logo: str):
+    if not os.path.exists(ruta_logo):
+        return
+
+    with open(ruta_logo, "rb") as f:
+        logo_base64 = base64.b64encode(f.read()).decode()
+
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-color: white;
+        }}
+
+        .stApp::after {{
+            content: "";
+            position: fixed;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 400px;
+            height: 400px;
+            background-image: url("data:image/png;base64,{logo_base64}");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+            opacity: 0.03;
+            z-index: 0;
+            pointer-events: none;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 agregar_logo_central_tenue(LOGO_FILE)
 
 USUARIOS = {
@@ -154,7 +155,6 @@ MODELOS = {
 }
 
 
-
 # =========================================================
 # UTILIDADES
 # =========================================================
@@ -220,6 +220,7 @@ def detectar_motor_excel(uploaded_file):
 
 
 def leer_excel_hoja(uploaded_file, sheet_name):
+    uploaded_file.seek(0)
     engine = detectar_motor_excel(uploaded_file)
     if engine:
         return pd.read_excel(uploaded_file, sheet_name=sheet_name, engine=engine)
@@ -238,6 +239,7 @@ def sugerir_columna(columnas, candidatos):
 def obtener_template_por_modelo(modelo):
     return MODELOS[modelo]["template"]
 
+
 def normalizar_texto(texto):
     if texto is None:
         return ""
@@ -252,6 +254,8 @@ def normalizar_columnas(df):
         c_norm = normalizar_texto(c)
         nuevas[c] = c_norm
     return df.rename(columns=nuevas)
+
+
 # =========================================================
 # BASE DE DATOS
 # =========================================================
@@ -464,6 +468,7 @@ def eliminar_cotizacion_por_id(cotizacion_id):
     conn.commit()
     conn.close()
 
+
 # =========================================================
 # DOCX / PDF
 # =========================================================
@@ -515,6 +520,7 @@ def convertir_docx_a_pdf(docx_path):
 
     return pdf_path
 
+
 # =========================================================
 # LOGIN
 # =========================================================
@@ -539,6 +545,7 @@ if st.session_state.usuario is None:
     st.stop()
 
 usuario_actual = USUARIOS[st.session_state.usuario]["nombre"]
+
 
 # =========================================================
 # APP
@@ -576,6 +583,7 @@ tab_cot, tab_hist, tab_efi, tab_dash = st.tabs([
     "⚡ Eficiencia energética",
     "📊 Dashboard Comercial"
 ])
+
 
 # =========================================================
 # TAB 1 - COTIZACION
@@ -722,6 +730,7 @@ III. Telemetría incluida""",
             except Exception as e:
                 st.error(f"Error al generar la cotización: {e}")
 
+
 # =========================================================
 # TAB 2 - HISTORIAL / ELIMINAR
 # =========================================================
@@ -755,29 +764,10 @@ with tab_hist:
         st.error(f"No fue posible cargar el historial: {e}")
 
 
-
 # =========================================================
 # TAB 3 - EFICIENCIA ENERGÉTICA
 # =========================================================
 with tab_efi:
-    import pandas as pd
-    import plotly.graph_objects as go
-    import plotly.express as px
-    import unicodedata
-    from io import BytesIO
-    from reportlab.lib.pagesizes import landscape, A4
-    from reportlab.lib import colors
-    from reportlab.lib.units import cm
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Image
-    )
-    from reportlab.lib.styles import getSampleStyleSheet
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec
-    from matplotlib.patches import Wedge, Circle
-    from matplotlib import image as mpimg
-    import numpy as np
-
     st.subheader("⚡ Eficiencia energética")
 
     archivo = st.file_uploader("Subir Excel (.xlsx)", type=["xlsx"], key="efi_tab3")
@@ -797,7 +787,38 @@ with tab_efi:
                     return c_real
         return None
 
-    def dibujar_gauge(ax, valor, vmin, vmax, rangos, titulo, texto_valor, color_barra="#15803d"):
+    def importaciones_pdf_disponibles():
+        try:
+            import matplotlib.pyplot as plt
+            from matplotlib.gridspec import GridSpec
+            from matplotlib.patches import Wedge, Circle
+            from matplotlib import image as mpimg
+            import numpy as np
+            from reportlab.lib.pagesizes import landscape, A4
+            from reportlab.lib.units import cm
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+            from reportlab.lib.styles import getSampleStyleSheet
+            return {
+                "ok": True,
+                "plt": plt,
+                "GridSpec": GridSpec,
+                "Wedge": Wedge,
+                "Circle": Circle,
+                "mpimg": mpimg,
+                "np": np,
+                "landscape": landscape,
+                "A4": A4,
+                "cm": cm,
+                "SimpleDocTemplate": SimpleDocTemplate,
+                "Paragraph": Paragraph,
+                "Spacer": Spacer,
+                "Image": Image,
+                "getSampleStyleSheet": getSampleStyleSheet,
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def dibujar_gauge(ax, valor, vmin, vmax, rangos, titulo, texto_valor, np_mod, Wedge, Circle, color_barra="#15803d"):
         ax.set_aspect("equal")
         ax.axis("off")
 
@@ -809,9 +830,9 @@ with tab_efi:
 
         if valor is not None:
             valor_clip = max(vmin, min(vmax, valor))
-            angle = np.deg2rad(180 - 180 * ((valor_clip - vmin) / (vmax - vmin)))
-            x = 0.78 * np.cos(angle)
-            y = 0.78 * np.sin(angle)
+            angle = np_mod.deg2rad(180 - 180 * ((valor_clip - vmin) / (vmax - vmin)))
+            x = 0.78 * np_mod.cos(angle)
+            y = 0.78 * np_mod.sin(angle)
             ax.plot([0, x], [0, y], color=color_barra, linewidth=9, solid_capstyle="round")
 
         inner = Circle((0, 0), 0.58, color="white", ec="none")
@@ -823,6 +844,17 @@ with tab_efi:
         ax.set_ylim(-0.15, 1.15)
 
     def generar_dashboard_png(base, trazado, bateria, distancia, consumo, rendimiento, autonomia_total, autonomia_15, vel_prom, logo_path=None):
+        mods = importaciones_pdf_disponibles()
+        if not mods["ok"]:
+            raise RuntimeError(f"No están instaladas las librerías para PDF/imagen: {mods['error']}")
+
+        plt = mods["plt"]
+        GridSpec = mods["GridSpec"]
+        Wedge = mods["Wedge"]
+        Circle = mods["Circle"]
+        mpimg = mods["mpimg"]
+        np_mod = mods["np"]
+
         fig = plt.figure(figsize=(16, 9), facecolor="#eef3f8")
         gs = GridSpec(3, 2, figure=fig, height_ratios=[2.0, 1.1, 1.5], width_ratios=[1.1, 1.0], hspace=0.38, wspace=0.18)
 
@@ -872,17 +904,25 @@ with tab_efi:
 
         gsg = gs[1, :].subgridspec(1, 3, wspace=0.28)
         axg1 = fig.add_subplot(gsg[0, 0])
-        dibujar_gauge(axg1, rendimiento, 0, 1.2,
-                      [(0, 0.90, "#22c55e"), (0.90, 1.00, "#facc15"), (1.00, 1.20, "#ef4444")],
-                      "Rendimiento kWh/km", f"{rendimiento:.3f}")
+        dibujar_gauge(
+            axg1, rendimiento, 0, 1.2,
+            [(0, 0.90, "#22c55e"), (0.90, 1.00, "#facc15"), (1.00, 1.20, "#ef4444")],
+            "Rendimiento kWh/km", f"{rendimiento:.3f}", np_mod, Wedge, Circle
+        )
+
         axg2 = fig.add_subplot(gsg[0, 1])
-        dibujar_gauge(axg2, autonomia_total, 0, 500,
-                      [(0, 280, "#ef4444"), (280, 350, "#facc15"), (350, 500, "#22c55e")],
-                      f"Autonomía total ({bateria:.0f} kWh)", f"{autonomia_total:.0f} km")
+        dibujar_gauge(
+            axg2, autonomia_total, 0, 500,
+            [(0, 280, "#ef4444"), (280, 350, "#facc15"), (350, 500, "#22c55e")],
+            f"Autonomía total ({bateria:.0f} kWh)", f"{autonomia_total:.0f} km", np_mod, Wedge, Circle
+        )
+
         axg3 = fig.add_subplot(gsg[0, 2])
-        dibujar_gauge(axg3, autonomia_15, 0, 500,
-                      [(0, 250, "#ef4444"), (250, 320, "#facc15"), (320, 500, "#22c55e")],
-                      "Autonomía útil al 15% SoC", f"{autonomia_15:.0f} km")
+        dibujar_gauge(
+            axg3, autonomia_15, 0, 500,
+            [(0, 250, "#ef4444"), (250, 320, "#facc15"), (320, 500, "#22c55e")],
+            "Autonomía útil al 15% SoC", f"{autonomia_15:.0f} km", np_mod, Wedge, Circle
+        )
 
         ax3 = fig.add_subplot(gs[2, :])
         ax3.set_facecolor("#eef3f8")
@@ -917,6 +957,19 @@ with tab_efi:
         return out.getvalue()
 
     def generar_pdf_ejecutivo(trazado, bateria, distancia, consumo, rendimiento, autonomia_total, autonomia_15, vel_prom, base, logo_path=None):
+        mods = importaciones_pdf_disponibles()
+        if not mods["ok"]:
+            raise RuntimeError(f"No están instaladas las librerías para PDF/imagen: {mods['error']}")
+
+        landscape = mods["landscape"]
+        A4 = mods["A4"]
+        cm = mods["cm"]
+        SimpleDocTemplate = mods["SimpleDocTemplate"]
+        Paragraph = mods["Paragraph"]
+        Spacer = mods["Spacer"]
+        Image = mods["Image"]
+        getSampleStyleSheet = mods["getSampleStyleSheet"]
+
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
@@ -966,15 +1019,16 @@ with tab_efi:
 
     if archivo:
         try:
-            xls = pd.ExcelFile(archivo)
+            archivo.seek(0)
+            xls = pd.ExcelFile(archivo, engine="openpyxl")
             hojas = xls.sheet_names
 
             if len(hojas) < 2:
                 st.error("El archivo debe traer al menos 2 hojas: base y resumen.")
                 st.stop()
 
-            df_base = pd.read_excel(archivo, sheet_name=0)
-            df_resumen = pd.read_excel(archivo, sheet_name=1)
+            df_base = xls.parse(sheet_name=0)
+            df_resumen = xls.parse(sheet_name=1)
 
             df_base_original = df_base.copy()
             df_resumen_original = df_resumen.copy()
@@ -995,18 +1049,28 @@ with tab_efi:
             col_consumo = buscar_columna(df_resumen.columns, ["consumo energetico", "consumo energético", "consumo"])
 
             faltantes_base = []
-            if col_trazado_base is None: faltantes_base.append("trazado")
-            if col_odo is None: faltantes_base.append("odometro")
-            if col_vel is None: faltantes_base.append("velocidad")
-            if col_soc is None: faltantes_base.append("soc")
-            if col_alt is None: faltantes_base.append("altitud")
-            if col_lat is None: faltantes_base.append("latitud")
-            if col_lon is None: faltantes_base.append("longitud")
+            if col_trazado_base is None:
+                faltantes_base.append("trazado")
+            if col_odo is None:
+                faltantes_base.append("odometro")
+            if col_vel is None:
+                faltantes_base.append("velocidad")
+            if col_soc is None:
+                faltantes_base.append("soc")
+            if col_alt is None:
+                faltantes_base.append("altitud")
+            if col_lat is None:
+                faltantes_base.append("latitud")
+            if col_lon is None:
+                faltantes_base.append("longitud")
 
             faltantes_res = []
-            if col_trazado_res is None: faltantes_res.append("trazado")
-            if col_distancia is None: faltantes_res.append("distancia")
-            if col_consumo is None: faltantes_res.append("consumo energetico")
+            if col_trazado_res is None:
+                faltantes_res.append("trazado")
+            if col_distancia is None:
+                faltantes_res.append("distancia")
+            if col_consumo is None:
+                faltantes_res.append("consumo energetico")
 
             if faltantes_base:
                 st.error(f"Faltan columnas en hoja base: {', '.join(faltantes_base)}")
@@ -1268,6 +1332,7 @@ with tab_efi:
                     mime="application/pdf"
                 )
             except Exception as e_pdf:
+                st.info("El análisis funciona, pero la descarga PDF requiere instalar librerías adicionales.")
                 st.warning(f"No fue posible generar el PDF: {e_pdf}")
 
             st.markdown("### Tabla resumen")
@@ -1278,6 +1343,8 @@ with tab_efi:
 
         except Exception as e:
             st.error(f"Error: {e}")
+
+
 # =========================================================
 # TAB 4 - DASHBOARD
 # =========================================================

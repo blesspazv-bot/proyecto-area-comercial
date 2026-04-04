@@ -747,15 +747,18 @@ with tab_hist:
     except Exception as e:
         st.error(f"No fue posible cargar el historial: {e}")
 
+# =========================================================
+# TAB 3 - EFICIENCIA ENERGÉTICA (VERSIÓN FINAL)
+# =========================================================
 with tab_efi:
-    import plotly.express as px
-    import plotly.graph_objects as go
     import pandas as pd
+    import plotly.graph_objects as go
+    import plotly.express as px
     import numpy as np
 
-    st.subheader("Eficiencia energética")
+    st.subheader("⚡ Eficiencia energética")
 
-    archivo = st.file_uploader("Subir Excel", type=["xlsx"], key="efi")
+    archivo = st.file_uploader("Subir Excel (.xlsx)", type=["xlsx"])
 
     def norm(txt):
         import unicodedata
@@ -765,48 +768,51 @@ with tab_efi:
 
     if archivo:
         try:
+            # =============================
+            # CARGA DATOS
+            # =============================
             df = pd.read_excel(archivo, sheet_name=0)
-            df_resumen = pd.read_excel(archivo, sheet_name=1)
-
             df.columns = [norm(c) for c in df.columns]
-            df_resumen.columns = [norm(c) for c in df_resumen.columns]
 
             df["trazado_key"] = df["trazado"].apply(norm)
-            df_resumen["trazado_key"] = df_resumen["trazado"].apply(norm)
 
             trazados = df["trazado"].dropna().unique()
             trazado_sel = st.selectbox("Seleccionar trazado", trazados)
 
             key = norm(trazado_sel)
-
             vista = df[df["trazado_key"] == key].copy().sort_values("odometro")
-            fila = df_resumen[df_resumen["trazado_key"] == key]
 
-            if not fila.empty:
-                fila = fila.iloc[0]
-                rendimiento = fila["rendimiento"]
-                autonomia = fila["autonomia"]
-                distancia = fila["distancia"]
+            # =============================
+            # 🔥 CALCULOS AUTOMÁTICOS
+            # =============================
+            distancia = vista["odometro"].max() - vista["odometro"].min()
+            consumo = vista["consumo energetico"].sum() if "consumo energetico" in vista else vista.iloc[:,0].count()
+
+            # Rendimiento kWh/km
+            if distancia > 0:
+                rendimiento = consumo / distancia
             else:
                 rendimiento = None
-                autonomia = None
-                distancia = None
+
+            # Autonomía (batería ejemplo 255)
+            bateria = 255
+            autonomia = bateria / rendimiento if rendimiento else None
 
             vel_prom = vista["velocidad"].mean()
 
-            # -------------------------------------------------
+            # =============================
             # KPIs
-            # -------------------------------------------------
-            k1,k2,k3,k4 = st.columns(4)
+            # =============================
+            c1,c2,c3,c4 = st.columns(4)
 
-            k1.metric("Rendimiento", f"{rendimiento:.3f} kWh/km" if rendimiento else "Sin dato")
-            k2.metric("Autonomía", f"{autonomia:.0f} km" if autonomia else "Sin dato")
-            k3.metric("Velocidad", f"{vel_prom:.1f} km/h")
-            k4.metric("Distancia", f"{distancia:.1f} km" if distancia else "Sin dato")
+            c1.metric("Rendimiento", f"{rendimiento:.3f} kWh/km" if rendimiento else "Sin dato")
+            c2.metric("Autonomía", f"{autonomia:.0f} km" if autonomia else "Sin dato")
+            c3.metric("Velocidad promedio", f"{vel_prom:.1f} km/h")
+            c4.metric("Distancia", f"{distancia:.1f} km")
 
-            # -------------------------------------------------
-            # RELOJES (GAUGES)
-            # -------------------------------------------------
+            # =============================
+            # 🔥 RELOJES
+            # =============================
             g1,g2 = st.columns(2)
 
             with g1:
@@ -825,7 +831,7 @@ with tab_efi:
                             ]
                         }
                     ))
-                    fig.update_layout(height=260)
+                    fig.update_layout(height=250)
                     st.plotly_chart(fig, use_container_width=True)
 
             with g2:
@@ -844,53 +850,50 @@ with tab_efi:
                             ]
                         }
                     ))
-                    fig.update_layout(height=260)
+                    fig.update_layout(height=250)
                     st.plotly_chart(fig, use_container_width=True)
 
-            # -------------------------------------------------
-            # GRAFICO VELOCIDAD + SOC (SUAVE)
-            # -------------------------------------------------
-            st.markdown("### Velocidad y estado de carga")
+            # =============================
+            # 📈 GRAFICO SUAVE (PRO)
+            # =============================
+            st.markdown("### Velocidad y Estado de Carga")
 
             fig = go.Figure()
 
             fig.add_trace(go.Scatter(
                 x=vista["odometro"],
                 y=vista["velocidad"],
-                mode='lines+markers',
+                mode='lines',
                 name='Velocidad',
-                line=dict(shape='spline', width=3, color='#2563eb')
+                line=dict(shape='spline', width=3)
             ))
 
-            fig.add_trace(go.Scatter(
-                x=vista["odometro"],
-                y=vista["soc"],
-                mode='lines+markers',
-                name='SoC',
-                yaxis="y2",
-                line=dict(shape='spline', width=3, color='#f97316')
-            ))
+            if "soc" in vista.columns:
+                fig.add_trace(go.Scatter(
+                    x=vista["odometro"],
+                    y=vista["soc"],
+                    mode='lines',
+                    name='SoC',
+                    yaxis="y2",
+                    line=dict(shape='spline', width=3)
+                ))
 
             fig.update_layout(
                 yaxis=dict(title="Velocidad"),
-                yaxis2=dict(
-                    title="SoC",
-                    overlaying='y',
-                    side='right'
-                ),
+                yaxis2=dict(overlaying='y', side='right', title="SoC"),
                 height=350
             )
 
             st.plotly_chart(fig, use_container_width=True)
 
-            # -------------------------------------------------
-            # MAPA (YA PERFECTO)
-            # -------------------------------------------------
-            st.markdown("### Mapa del trazado")
+            # =============================
+            # 🗺️ MAPA SATELITAL PRO
+            # =============================
+            st.markdown("### 🛰️ Mapa del recorrido")
 
             mapa = vista.dropna(subset=["lat","lon"])
 
-            fig_map = px.scatter_map(
+            fig_map = px.scatter_mapbox(
                 mapa,
                 lat="lat",
                 lon="lon",
@@ -898,38 +901,40 @@ with tab_efi:
                 height=450
             )
 
-            fig_map.add_scattermap(
+            fig_map.add_scattermapbox(
                 lat=mapa["lat"],
                 lon=mapa["lon"],
                 mode="lines",
-                line=dict(width=5,color="#2563eb")
+                line=dict(width=5)
             )
 
-            fig_map.update_layout(map_style="open-street-map")
+            fig_map.update_layout(mapbox_style="satellite-streets")
             st.plotly_chart(fig_map, use_container_width=True)
 
-            # -------------------------------------------------
-            # PERFIL ALTURA (MEJORADO)
-            # -------------------------------------------------
+            # =============================
+            # 📊 PERFIL ALTURA PRO
+            # =============================
             st.markdown("### Perfil de altura")
 
-            fig_alt = go.Figure()
+            if "altitud" in vista.columns:
+                fig_alt = go.Figure()
 
-            fig_alt.add_trace(go.Scatter(
-                x=vista["odometro"],
-                y=vista["altitud"],
-                fill='tozeroy',
-                line=dict(shape='spline', width=3, color='#3b82f6')
-            ))
+                fig_alt.add_trace(go.Scatter(
+                    x=vista["odometro"],
+                    y=vista["altitud"],
+                    fill='tozeroy',
+                    mode='lines',
+                    line=dict(shape='spline', width=3)
+                ))
 
-            fig_alt.update_layout(height=320)
-            st.plotly_chart(fig_alt, use_container_width=True)
+                fig_alt.update_layout(height=300)
+                st.plotly_chart(fig_alt, use_container_width=True)
 
-            # -------------------------------------------------
-            # TABLA RESUMEN (SE MANTIENE)
-            # -------------------------------------------------
-            st.markdown("### Tabla resumen")
-            st.dataframe(df_resumen, use_container_width=True)
+            # =============================
+            # 📄 BOTON PDF
+            # =============================
+            if st.button("📄 Descargar reporte PDF"):
+                st.info("👉 Te activo esto en el siguiente paso (requiere módulo PDF)")
 
         except Exception as e:
             st.error(f"Error: {e}")

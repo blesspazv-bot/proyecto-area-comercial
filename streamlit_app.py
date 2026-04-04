@@ -8,6 +8,8 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import plotly.graph_objects as go
+import pydeck as pdk
 import pandas as pd
 import streamlit as st
 import altair as alt
@@ -595,8 +597,8 @@ with tab_cot:
 
     with c2:
         cantidad_unidades = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
-        precio_unitario = st.number_input("Precio unitario USD", min_value=0.0, value=130491.0, step=1000.0)
-        contrato_mantto = st.text_input("Contrato mantto", value="48 meses")
+        precio_unitario = st.number_input("Precio unitario USD", min_value=0.0, value=130000.0, step=1000.0)
+        contrato_mantto = st.text_input("Contrato mantto", value="12 meses")
 
         if modelo_info["tipo"] == "electrico":
             capacidad_bateria = st.selectbox("Capacidad nominal batería", modelo_info["capacidades"])
@@ -757,247 +759,365 @@ with tab_hist:
 # =========================================================
 with tab_efi:
     st.subheader("Eficiencia energética")
-    st.write("Sube una planilla Excel con la hoja de eventos y la hoja resumen por trazado.")
+    st.write("Sube una planilla Excel con datos crudos y hoja resumen por trazado.")
 
     archivo = st.file_uploader("Subir Excel", type=["xlsx", "xls"], key="excel_efi")
 
     if archivo:
         try:
-            # -----------------------------
-            # CARGA DE HOJAS
-            # -----------------------------
             xls = pd.ExcelFile(archivo)
             hojas = xls.sheet_names
 
-            if len(hojas) < 1:
-                st.error("El archivo no contiene hojas válidas.")
+            hoja_datos = hojas[0]
+            hoja_resumen = hojas[1] if len(hojas) > 1 else None
+
+            df = pd.read_excel(archivo, sheet_name=hoja_datos, engine="openpyxl")
+            df_resumen_excel = None
+
+            if hoja_resumen:
+                df_resumen_excel = pd.read_excel(archivo, sheet_name=hoja_resumen, engine="openpyxl")
+
+            st.markdown("### Vista previa hoja principal")
+            st.dataframe(df.head(10), use_container_width=True)
+
+            if df_resumen_excel is not None:
+                st.markdown("### Vista previa hoja resumen")
+                st.dataframe(df_resumen_excel, use_container_width=True)
+
+            # -------------------------------------------------
+            # BUSQUEDA DE COLUMNAS EN HOJA PRINCIPAL
+            # -------------------------------------------------
+            columnas = list(df.columns)
+
+            def buscar_columna(candidatos):
+                columnas_lower = {str(c).lower(): c for c in columnas}
+                for cand in candidatos:
+                    for col_lower, col_real in columnas_lower.items():
+                        if cand in col_lower:
+                            return col_real
+                return None
+
+            col_fecha = buscar_columna(["fecha evento", "fecha"])
+            col_lon = buscar_columna(["longitud", "longitude", "lon"])
+            col_lat = buscar_columna(["latitud", "latitude", "lat"])
+            col_alt = buscar_columna(["altitud", "altura"])
+            col_odo = buscar_columna(["odometro", "odómetro"])
+            col_soc = buscar_columna(["soc", "estado de carga"])
+            col_vel = buscar_columna(["velocidad"])
+            col_trazado = buscar_columna(["trazado", "ruta"])
+
+            faltantes = []
+            for nombre, col in {
+                "Trazado": col_trazado,
+                "Odómetro": col_odo,
+                "Velocidad": col_vel,
+                "SoC": col_soc,
+                "Latitud": col_lat,
+                "Longitud": col_lon,
+                "Altitud": col_alt,
+            }.items():
+                if col is None:
+                    faltantes.append(nombre)
+
+            if faltantes:
+                st.error(f"Faltan columnas clave en la hoja principal: {', '.join(faltantes)}")
             else:
-                hoja_datos = hojas[0]
-                hoja_resumen = hojas[1] if len(hojas) > 1 else None
+                # -------------------------------------------------
+                # NORMALIZACION HOJA PRINCIPAL
+                # -------------------------------------------------
+                trabajo = df.copy()
 
-                df = pd.read_excel(archivo, sheet_name=hoja_datos, engine="openpyxl")
-                df_resumen_excel = None
-                if hoja_resumen:
-                    df_resumen_excel = pd.read_excel(archivo, sheet_name=hoja_resumen, engine="openpyxl")
-
-                st.markdown("### Vista previa hoja principal")
-                st.dataframe(df.head(10), use_container_width=True)
-
-                if df_resumen_excel is not None:
-                    st.markdown("### Vista previa hoja resumen")
-                    st.dataframe(df_resumen_excel, use_container_width=True)
-
-                # -----------------------------
-                # NORMALIZACION DE COLUMNAS
-                # -----------------------------
-                columnas = list(df.columns)
-
-                def buscar_columna(candidatos):
-                    columnas_lower = {c.lower(): c for c in columnas}
-                    for cand in candidatos:
-                        for col_lower, col_real in columnas_lower.items():
-                            if cand in col_lower:
-                                return col_real
-                    return None
-
-                col_fecha = buscar_columna(["fecha evento", "fecha"])
-                col_lon = buscar_columna(["longitud", "lon"])
-                col_lat = buscar_columna(["latitud", "lat"])
-                col_alt = buscar_columna(["altitud", "altura"])
-                col_odo = buscar_columna(["odometro", "odómetro"])
-                col_soc = buscar_columna(["soc"])
-                col_vel = buscar_columna(["velocidad"])
-                col_energia = buscar_columna(["energia consumida por viaje", "energía consumida por viaje"])
-                col_consumo_kw = buscar_columna(["consumo kw"])
-                col_trazado = buscar_columna(["trazado", "ruta"])
-
-                obligatorias = {
-                    "Trazado": col_trazado,
-                    "Odometro": col_odo,
-                    "Velocidad": col_vel,
-                    "SoC": col_soc,
-                    "Latitud": col_lat,
-                    "Longitud": col_lon,
-                    "Altitud": col_alt,
-                }
-
-                faltantes = [k for k, v in obligatorias.items() if v is None]
-                if faltantes:
-                    st.error(f"Faltan columnas clave en la hoja principal: {', '.join(faltantes)}")
+                if col_fecha:
+                    trabajo["fecha_evento"] = pd.to_datetime(trabajo[col_fecha], errors="coerce")
                 else:
-                    trabajo = df.copy()
+                    trabajo["fecha_evento"] = pd.NaT
 
-                    if col_fecha:
-                        trabajo["fecha_evento"] = pd.to_datetime(trabajo[col_fecha], errors="coerce")
-                    else:
-                        trabajo["fecha_evento"] = pd.NaT
+                trabajo["trazado"] = trabajo[col_trazado].astype(str).str.strip()
+                trabajo["odometro"] = pd.to_numeric(trabajo[col_odo], errors="coerce")
+                trabajo["velocidad"] = pd.to_numeric(trabajo[col_vel], errors="coerce")
+                trabajo["soc"] = pd.to_numeric(trabajo[col_soc], errors="coerce")
+                trabajo["lat"] = pd.to_numeric(trabajo[col_lat], errors="coerce")
+                trabajo["lon"] = pd.to_numeric(trabajo[col_lon], errors="coerce")
+                trabajo["altitud"] = pd.to_numeric(trabajo[col_alt], errors="coerce")
 
-                    trabajo["trazado"] = trabajo[col_trazado].astype(str)
-                    trabajo["odometro"] = pd.to_numeric(trabajo[col_odo], errors="coerce")
-                    trabajo["velocidad"] = pd.to_numeric(trabajo[col_vel], errors="coerce")
-                    trabajo["soc"] = pd.to_numeric(trabajo[col_soc], errors="coerce")
-                    trabajo["lat"] = pd.to_numeric(trabajo[col_lat], errors="coerce")
-                    trabajo["lon"] = pd.to_numeric(trabajo[col_lon], errors="coerce")
-                    trabajo["altitud"] = pd.to_numeric(trabajo[col_alt], errors="coerce")
+                trabajo = trabajo.dropna(subset=["trazado", "odometro"]).copy()
+                trabajo = trabajo.sort_values(["trazado", "odometro"]).reset_index(drop=True)
 
-                    if col_energia:
-                        trabajo["energia_viaje"] = pd.to_numeric(trabajo[col_energia], errors="coerce")
-                    else:
-                        trabajo["energia_viaje"] = None
+                # -------------------------------------------------
+                # NORMALIZACION HOJA RESUMEN
+                # -------------------------------------------------
+                resumen = None
+                if df_resumen_excel is not None:
+                    resumen = df_resumen_excel.copy()
+                    resumen.columns = [str(c).strip() for c in resumen.columns]
 
-                    if col_consumo_kw:
-                        trabajo["consumo_kw"] = pd.to_numeric(trabajo[col_consumo_kw], errors="coerce")
-                    else:
-                        trabajo["consumo_kw"] = None
+                    # renombrado flexible
+                    rename_map = {}
+                    for c in resumen.columns:
+                        c_low = c.lower().strip()
+                        if c_low == "trazado":
+                            rename_map[c] = "trazado"
+                        elif "cantidad" in c_low and "pasaj" in c_low:
+                            rename_map[c] = "pasajeros"
+                        elif "distancia" in c_low:
+                            rename_map[c] = "distancia"
+                        elif "pendiente" in c_low:
+                            rename_map[c] = "pendiente_max"
+                        elif "consumo energético" in c_low or "consumo energetico" in c_low:
+                            rename_map[c] = "consumo_energetico"
+                        elif "rendimiento" in c_low:
+                            rename_map[c] = "rendimiento"
+                        elif "autonomia" in c_low:
+                            rename_map[c] = "autonomia"
 
-                    trabajo = trabajo.dropna(subset=["trazado", "odometro"]).copy()
+                    resumen = resumen.rename(columns=rename_map)
 
-                    trazados = sorted(trabajo["trazado"].dropna().unique().tolist())
+                    for c in ["distancia", "pendiente_max", "consumo_energetico", "rendimiento", "autonomia"]:
+                        if c in resumen.columns:
+                            resumen[c] = pd.to_numeric(resumen[c], errors="coerce")
 
-                    st.markdown("### Selección de trazado")
-                    trazado_sel = st.selectbox("Trazado", trazados)
+                    if "trazado" in resumen.columns:
+                        resumen["trazado"] = resumen["trazado"].astype(str).str.strip()
 
-                    vista = trabajo[trabajo["trazado"] == trazado_sel].copy().sort_values("odometro")
+                trazados = sorted(trabajo["trazado"].dropna().unique().tolist())
 
-                    if vista.empty:
-                        st.warning("No hay datos para el trazado seleccionado.")
-                    else:
-                        # -----------------------------
-                        # DISTANCIA RECORRIDA
-                        # -----------------------------
-                        kms_recorridos = float(vista["odometro"].max() - vista["odometro"].min())
+                st.markdown("### Selección de trazado")
+                trazado_sel = st.selectbox("Trazado", trazados)
 
-                        # -----------------------------
-                        # RESUMEN POR TRAZADO DESDE HOJA2
-                        # -----------------------------
+                vista = trabajo[trabajo["trazado"] == trazado_sel].copy().sort_values("odometro")
+
+                if vista.empty:
+                    st.warning("No hay datos para el trazado seleccionado.")
+                else:
+                    # -------------------------------------------------
+                    # KPIS DESDE HOJA 2 (FUENTE PRINCIPAL)
+                    # -------------------------------------------------
+                    pasajeros = None
+                    distancia_km = None
+                    pendiente_max = None
+                    consumo_energetico = None
+                    rendimiento = None
+                    autonomia = None
+
+                    if resumen is not None and "trazado" in resumen.columns:
+                        fila_resumen = resumen[resumen["trazado"] == trazado_sel]
+                        if not fila_resumen.empty:
+                            fila = fila_resumen.iloc[0]
+
+                            if "pasajeros" in fila.index:
+                                pasajeros = str(fila["pasajeros"])
+                            if "distancia" in fila.index:
+                                distancia_km = fila["distancia"]
+                            if "pendiente_max" in fila.index:
+                                pendiente_max = fila["pendiente_max"]
+                            if "consumo_energetico" in fila.index:
+                                consumo_energetico = fila["consumo_energetico"]
+                            if "rendimiento" in fila.index:
+                                rendimiento = fila["rendimiento"]
+                            if "autonomia" in fila.index:
+                                autonomia = fila["autonomia"]
+
+                    # fallbacks solo si falta resumen
+                    if distancia_km is None or pd.isna(distancia_km):
+                        distancia_km = float(vista["odometro"].max() - vista["odometro"].min())
+
+                    if rendimiento is None or pd.isna(rendimiento):
                         rendimiento = None
-                        autonomia = None
-                        distancia_resumen = None
-                        pasajeros = None
 
-                        if df_resumen_excel is not None and "Trazado" in df_resumen_excel.columns:
-                            resumen_sel = df_resumen_excel[df_resumen_excel["Trazado"].astype(str) == trazado_sel]
+                    velocidad_prom = vista["velocidad"].mean() if vista["velocidad"].notna().any() else None
 
-                            if not resumen_sel.empty:
-                                fila = resumen_sel.iloc[0]
+                    # -------------------------------------------------
+                    # KPIS PRINCIPALES
+                    # -------------------------------------------------
+                    k1, k2, k3, k4 = st.columns(4)
 
-                                if "Distancia" in resumen_sel.columns:
-                                    distancia_resumen = pd.to_numeric(fila["Distancia"], errors="coerce")
+                    k1.metric(
+                        "Rendimiento kWh/km",
+                        f"{rendimiento:.3f}" if rendimiento is not None and not pd.isna(rendimiento) else "Sin dato"
+                    )
+                    k2.metric(
+                        "Autonomía proyectada",
+                        f"{autonomia:.0f} km" if autonomia is not None and not pd.isna(autonomia) else "Sin dato"
+                    )
+                    k3.metric(
+                        "Velocidad promedio",
+                        f"{velocidad_prom:.1f} km/h" if velocidad_prom is not None and not pd.isna(velocidad_prom) else "Sin dato"
+                    )
+                    k4.metric(
+                        "Kms recorridos",
+                        f"{distancia_km:.1f} km" if distancia_km is not None and not pd.isna(distancia_km) else "Sin dato"
+                    )
 
-                                if "Autonomia" in resumen_sel.columns:
-                                    autonomia = pd.to_numeric(fila["Autonomia"], errors="coerce")
+                    if pasajeros:
+                        st.caption(f"Pasajeros: {pasajeros}")
 
-                                if "Rendimiento Prueba" in resumen_sel.columns:
-                                    rendimiento = pd.to_numeric(fila["Rendimiento Prueba"], errors="coerce")
+                    # -------------------------------------------------
+                    # GAUGES
+                    # -------------------------------------------------
+                    gk1, gk2 = st.columns(2)
 
-                                if "Cantidad de  pasajeros" in resumen_sel.columns:
-                                    pasajeros = str(fila["Cantidad de  pasajeros"])
-
-                        # fallback si faltan datos resumen
-                        if rendimiento is None or pd.isna(rendimiento):
-                            if vista["consumo_kw"].notna().any() and kms_recorridos > 0:
-                                energia_total = vista["consumo_kw"].fillna(0).sum() / 60.0
-                                rendimiento = energia_total / kms_recorridos if kms_recorridos > 0 else None
-
-                        if distancia_resumen is None or pd.isna(distancia_resumen):
-                            distancia_resumen = kms_recorridos
-
-                        velocidad_prom = vista["velocidad"].mean() if vista["velocidad"].notna().any() else None
-                        soc_inicio = vista["soc"].iloc[0] if vista["soc"].notna().any() else None
-                        soc_fin = vista["soc"].iloc[-1] if vista["soc"].notna().any() else None
-
-                        # -----------------------------
-                        # KPIS
-                        # -----------------------------
-                        k1, k2, k3, k4 = st.columns(4)
-
-                        k1.metric(
-                            "Rendimiento kWh/km",
-                            f"{rendimiento:.3f}" if rendimiento is not None and not pd.isna(rendimiento) else "Sin dato"
-                        )
-                        k2.metric(
-                            "Autonomía proyectada",
-                            f"{autonomia:.0f} km" if autonomia is not None and not pd.isna(autonomia) else "Sin dato"
-                        )
-                        k3.metric(
-                            "Velocidad promedio",
-                            f"{velocidad_prom:.1f} km/h" if velocidad_prom is not None and not pd.isna(velocidad_prom) else "Sin dato"
-                        )
-                        k4.metric(
-                            "Kms recorridos",
-                            f"{distancia_resumen:.1f} km" if distancia_resumen is not None and not pd.isna(distancia_resumen) else f"{kms_recorridos:.1f} km"
-                        )
-
-                        if pasajeros:
-                            st.caption(f"Pasajeros: {pasajeros}")
-
-                        # -----------------------------
-                        # GRAFICO 1: VELOCIDAD + SOC
-                        # -----------------------------
-                        g1, g2 = st.columns([1.1, 1])
-
-                        with g1:
-                            st.markdown("### Velocidad y Estado de Carga")
-
-                            base = alt.Chart(vista).encode(
-                                x=alt.X("odometro:Q", title="Odómetro km")
-                            )
-
-                            line_vel = base.mark_line(point=True).encode(
-                                y=alt.Y("velocidad:Q", title="Velocidad km/h"),
-                                tooltip=["odometro", "velocidad", "soc"]
-                            )
-
-                            line_soc = base.mark_line(point=True).encode(
-                                y=alt.Y("soc:Q", title="Estado de Carga SoC")
-                            )
-
-                            chart = alt.layer(line_vel, line_soc).resolve_scale(
-                                y="independent"
-                            ).properties(height=340)
-
-                            st.altair_chart(chart, use_container_width=True)
-
-                        # -----------------------------
-                        # GRAFICO 2: MAPA
-                        # -----------------------------
-                        with g2:
-                            st.markdown("### Trazado")
-                            mapa = vista.dropna(subset=["lat", "lon"]).copy()
-                            if not mapa.empty:
-                                st.map(
-                                    mapa.rename(columns={"lat": "latitude", "lon": "longitude"})[
-                                        ["latitude", "longitude"]
-                                    ]
-                                )
-                            else:
-                                st.info("No hay coordenadas válidas para el trazado seleccionado.")
-
-                        # -----------------------------
-                        # GRAFICO 3: ALTURA VS ODOMETRO
-                        # -----------------------------
-                        st.markdown("### Perfil de altura")
-                        if vista["altitud"].notna().any():
-                            chart_alt = alt.Chart(vista).mark_area(opacity=0.6).encode(
-                                x=alt.X("odometro:Q", title="Odómetro"),
-                                y=alt.Y("altitud:Q", title="Altura (m)"),
-                                tooltip=["odometro", "altitud"]
-                            ).properties(height=320)
-                            st.altair_chart(chart_alt, use_container_width=True)
+                    with gk1:
+                        st.markdown("### Rendimiento")
+                        if rendimiento is not None and not pd.isna(rendimiento):
+                            fig_rend = go.Figure(go.Indicator(
+                                mode="gauge+number",
+                                value=float(rendimiento),
+                                number={"suffix": " kWh/km"},
+                                gauge={
+                                    "axis": {"range": [0, 1.2]},
+                                    "bar": {"color": "#22c55e"},
+                                    "steps": [
+                                        {"range": [0, 0.95], "color": "#22c55e"},
+                                        {"range": [0.95, 1.05], "color": "#facc15"},
+                                        {"range": [1.05, 1.2], "color": "#ef4444"},
+                                    ],
+                                    "threshold": {
+                                        "line": {"color": "#b91c1c", "width": 4},
+                                        "thickness": 0.75,
+                                        "value": 0.95
+                                    }
+                                },
+                                title={"text": "Rendimiento kWh/km"}
+                            ))
+                            fig_rend.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20))
+                            st.plotly_chart(fig_rend, use_container_width=True)
                         else:
-                            st.info("No hay datos de altitud.")
+                            st.info("Sin dato de rendimiento.")
 
-                        # -----------------------------
-                        # TABLA DETALLE
-                        # -----------------------------
-                        st.markdown("### Detalle del trazado")
-                        columnas_detalle = [
-                            c for c in [
-                                "fecha_evento", "trazado", "odometro", "velocidad",
-                                "soc", "altitud", "lat", "lon", "energia_viaje", "consumo_kw"
-                            ] if c in vista.columns
-                        ]
-                        st.dataframe(vista[columnas_detalle], use_container_width=True)
+                    with gk2:
+                        st.markdown("### Autonomía proyectada")
+                        if autonomia is not None and not pd.isna(autonomia):
+                            fig_auto = go.Figure(go.Indicator(
+                                mode="gauge+number",
+                                value=float(autonomia),
+                                number={"suffix": " km"},
+                                gauge={
+                                    "axis": {"range": [0, 480]},
+                                    "bar": {"color": "#22c55e"},
+                                    "steps": [
+                                        {"range": [0, 280], "color": "#ef4444"},
+                                        {"range": [280, 360], "color": "#facc15"},
+                                        {"range": [360, 480], "color": "#22c55e"},
+                                    ],
+                                    "threshold": {
+                                        "line": {"color": "#b91c1c", "width": 4},
+                                        "thickness": 0.75,
+                                        "value": 280
+                                    }
+                                },
+                                title={"text": "Autonomía proyectada"}
+                            ))
+                            fig_auto.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20))
+                            st.plotly_chart(fig_auto, use_container_width=True)
+                        else:
+                            st.info("Sin dato de autonomía.")
+
+                    # -------------------------------------------------
+                    # VELOCIDAD Y SOC - COLORES DISTINTOS
+                    # -------------------------------------------------
+                    c1, c2 = st.columns([1.05, 1])
+
+                    with c1:
+                        st.markdown("### Velocidad y Estado de Carga")
+
+                        base = alt.Chart(vista).encode(
+                            x=alt.X("odometro:Q", title="Odómetro km")
+                        )
+
+                        line_vel = base.mark_line(point=True, strokeWidth=3, color="#1d4ed8").encode(
+                            y=alt.Y("velocidad:Q", title="Velocidad km/h"),
+                            tooltip=["odometro", "velocidad", "soc"]
+                        )
+
+                        line_soc = base.mark_line(point=True, strokeWidth=3, color="#f97316").encode(
+                            y=alt.Y("soc:Q", title="Estado de Carga SoC")
+                        )
+
+                        chart = alt.layer(line_vel, line_soc).resolve_scale(
+                            y="independent"
+                        ).properties(height=360)
+
+                        st.altair_chart(chart, use_container_width=True)
+
+                    # -------------------------------------------------
+                    # MAPA MAS COLORIDO / REAL
+                    # -------------------------------------------------
+                    with c2:
+                        st.markdown("### Trazado")
+
+                        mapa = vista.dropna(subset=["lat", "lon"]).copy()
+
+                        if not mapa.empty:
+                            mapa_path = mapa[["lon", "lat"]].values.tolist()
+
+                            layer_points = pdk.Layer(
+                                "ScatterplotLayer",
+                                data=mapa,
+                                get_position='[lon, lat]',
+                                get_fill_color='[220, 38, 38, 180]',
+                                get_radius=18,
+                                pickable=True
+                            )
+
+                            layer_path = pdk.Layer(
+                                "PathLayer",
+                                data=[{"path": mapa_path}],
+                                get_path="path",
+                                get_color=[37, 99, 235],
+                                width_scale=20,
+                                width_min_pixels=3
+                            )
+
+                            view_state = pdk.ViewState(
+                                latitude=float(mapa["lat"].mean()),
+                                longitude=float(mapa["lon"].mean()),
+                                zoom=12,
+                                pitch=0
+                            )
+
+                            deck = pdk.Deck(
+                                layers=[layer_path, layer_points],
+                                initial_view_state=view_state,
+                                map_style="road"
+                            )
+
+                            st.pydeck_chart(deck, use_container_width=True)
+                        else:
+                            st.info("No hay coordenadas válidas para el trazado seleccionado.")
+
+                    # -------------------------------------------------
+                    # PERFIL DE ALTURA LIMPIO
+                    # -------------------------------------------------
+                    st.markdown("### Perfil de altura")
+
+                    perfil = vista[["odometro", "altitud"]].dropna().copy()
+                    perfil = perfil.sort_values("odometro")
+
+                    if not perfil.empty:
+                        chart_alt = alt.Chart(perfil).mark_line(
+                            strokeWidth=3,
+                            color="#60a5fa"
+                        ).encode(
+                            x=alt.X("odometro:Q", title="Odómetro"),
+                            y=alt.Y("altitud:Q", title="Altura (m)"),
+                            tooltip=["odometro", "altitud"]
+                        ).properties(height=320)
+
+                        st.altair_chart(chart_alt, use_container_width=True)
+                    else:
+                        st.info("No hay datos de altitud.")
+
+                    # -------------------------------------------------
+                    # TABLA DETALLE
+                    # -------------------------------------------------
+                    st.markdown("### Detalle del trazado")
+                    columnas_detalle = [
+                        c for c in [
+                            "fecha_evento", "trazado", "odometro", "velocidad",
+                            "soc", "altitud", "lat", "lon"
+                        ] if c in vista.columns
+                    ]
+                    st.dataframe(vista[columnas_detalle], use_container_width=True)
 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")

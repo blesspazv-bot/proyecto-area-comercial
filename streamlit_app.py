@@ -77,6 +77,7 @@ st.set_page_config(
 
 DB_FILE = "cotizaciones.db"
 LOGO_FILE = "logo_andes_motor.png"
+agregar_logo_central_tenue(LOGO_FILE)
 
 USUARIOS = {
     "dvejar": {"nombre": "Diego Vejar"},
@@ -754,6 +755,7 @@ with tab_hist:
         st.error(f"No fue posible cargar el historial: {e}")
 
 
+
 # =========================================================
 # TAB 3 - EFICIENCIA ENERGÉTICA
 # =========================================================
@@ -763,21 +765,23 @@ with tab_efi:
     import plotly.express as px
     import unicodedata
     from io import BytesIO
-    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.pagesizes import landscape, A4
     from reportlab.lib import colors
     from reportlab.lib.units import cm
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+        SimpleDocTemplate, Paragraph, Spacer, Image
     )
     from reportlab.lib.styles import getSampleStyleSheet
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+    from matplotlib.patches import Wedge, Circle
+    from matplotlib import image as mpimg
+    import numpy as np
 
     st.subheader("⚡ Eficiencia energética")
 
     archivo = st.file_uploader("Subir Excel (.xlsx)", type=["xlsx"], key="efi_tab3")
 
-    # -----------------------------------------------------
-    # FUNCIONES AUXILIARES
-    # -----------------------------------------------------
     def norm(txt):
         if pd.isna(txt):
             return ""
@@ -793,24 +797,134 @@ with tab_efi:
                     return c_real
         return None
 
-    def generar_pdf_ejecutivo(
-        trazado,
-        bateria,
-        distancia,
-        consumo,
-        rendimiento,
-        autonomia_total,
-        autonomia_15,
-        vel_prom
-    ):
+    def dibujar_gauge(ax, valor, vmin, vmax, rangos, titulo, texto_valor, color_barra="#15803d"):
+        ax.set_aspect("equal")
+        ax.axis("off")
+
+        for inicio, fin, color in rangos:
+            th1 = 180 - 180 * ((inicio - vmin) / (vmax - vmin))
+            th2 = 180 - 180 * ((fin - vmin) / (vmax - vmin))
+            wedge = Wedge((0, 0), 1.0, th1, th2, width=0.22, facecolor=color, edgecolor="none")
+            ax.add_patch(wedge)
+
+        if valor is not None:
+            valor_clip = max(vmin, min(vmax, valor))
+            angle = np.deg2rad(180 - 180 * ((valor_clip - vmin) / (vmax - vmin)))
+            x = 0.78 * np.cos(angle)
+            y = 0.78 * np.sin(angle)
+            ax.plot([0, x], [0, y], color=color_barra, linewidth=9, solid_capstyle="round")
+
+        inner = Circle((0, 0), 0.58, color="white", ec="none")
+        ax.add_patch(inner)
+
+        ax.text(0, 0.20, titulo, ha="center", va="center", fontsize=13, fontweight="bold")
+        ax.text(0, -0.02, texto_valor, ha="center", va="center", fontsize=17, color="#1f2937")
+        ax.set_xlim(-1.15, 1.15)
+        ax.set_ylim(-0.15, 1.15)
+
+    def generar_dashboard_png(base, trazado, bateria, distancia, consumo, rendimiento, autonomia_total, autonomia_15, vel_prom, logo_path=None):
+        fig = plt.figure(figsize=(16, 9), facecolor="#eef3f8")
+        gs = GridSpec(3, 2, figure=fig, height_ratios=[2.0, 1.1, 1.5], width_ratios=[1.1, 1.0], hspace=0.38, wspace=0.18)
+
+        if logo_path and os.path.exists(logo_path):
+            try:
+                img = mpimg.imread(logo_path)
+                ax_w = fig.add_axes([0.23, 0.27, 0.54, 0.46], zorder=0)
+                ax_w.imshow(img, alpha=0.07)
+                ax_w.axis("off")
+            except Exception:
+                pass
+
+        fig.text(0.035, 0.95, f"Resultados Pruebas {trazado}", fontsize=20, fontweight="bold", color="#1f2937")
+
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax1.set_facecolor("#eef3f8")
+        x = base["odometro"].to_numpy()
+        yv = base["velocidad"].to_numpy()
+        ax1.plot(x, yv, color="#2185f5", linewidth=2.5, marker="o", markersize=3)
+        ax1.set_title("Velocidad y Estado de Carga", loc="left", fontsize=13, fontweight="bold")
+        ax1.set_xlabel("Odómetro km")
+        ax1.set_ylabel("Velocidad km/h")
+        ax1.grid(True, linestyle=":", alpha=0.35)
+
+        if base["soc"].notna().any():
+            ax1b = ax1.twinx()
+            ys = base["soc"].to_numpy()
+            ax1b.plot(x, ys, color="#1e3a8a", linewidth=2.5, marker="o", markersize=3)
+            ax1b.set_ylabel("Estado de Carga SoC")
+
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax2.set_facecolor("#eef3f8")
+        mapa = base.dropna(subset=["lat", "lon"]).copy()
+        if not mapa.empty:
+            ax2.plot(mapa["lon"], mapa["lat"], color="#2563eb", linewidth=2.2)
+            ax2.scatter(mapa["lon"], mapa["lat"], s=18, color="#1d4ed8", alpha=0.8)
+            ax2.scatter(mapa["lon"].iloc[0], mapa["lat"].iloc[0], s=60, color="#16a34a", label="Inicio", zorder=5)
+            ax2.scatter(mapa["lon"].iloc[-1], mapa["lat"].iloc[-1], s=60, color="#dc2626", label="Fin", zorder=5)
+            ax2.set_title("Recorrido georreferenciado", loc="left", fontsize=13, fontweight="bold")
+            ax2.set_xlabel("Longitud")
+            ax2.set_ylabel("Latitud")
+            ax2.grid(True, linestyle=":", alpha=0.35)
+            ax2.legend(loc="upper right", frameon=False, fontsize=9)
+        else:
+            ax2.text(0.5, 0.5, "Sin coordenadas válidas", ha="center", va="center", fontsize=12)
+            ax2.axis("off")
+
+        gsg = gs[1, :].subgridspec(1, 3, wspace=0.28)
+        axg1 = fig.add_subplot(gsg[0, 0])
+        dibujar_gauge(axg1, rendimiento, 0, 1.2,
+                      [(0, 0.90, "#22c55e"), (0.90, 1.00, "#facc15"), (1.00, 1.20, "#ef4444")],
+                      "Rendimiento kWh/km", f"{rendimiento:.3f}")
+        axg2 = fig.add_subplot(gsg[0, 1])
+        dibujar_gauge(axg2, autonomia_total, 0, 500,
+                      [(0, 280, "#ef4444"), (280, 350, "#facc15"), (350, 500, "#22c55e")],
+                      f"Autonomía total ({bateria:.0f} kWh)", f"{autonomia_total:.0f} km")
+        axg3 = fig.add_subplot(gsg[0, 2])
+        dibujar_gauge(axg3, autonomia_15, 0, 500,
+                      [(0, 250, "#ef4444"), (250, 320, "#facc15"), (320, 500, "#22c55e")],
+                      "Autonomía útil al 15% SoC", f"{autonomia_15:.0f} km")
+
+        ax3 = fig.add_subplot(gs[2, :])
+        ax3.set_facecolor("#eef3f8")
+        if base["altitud"].notna().any():
+            ax3.fill_between(base["odometro"], base["altitud"], color="#60a5fa", alpha=0.55)
+            ax3.plot(base["odometro"], base["altitud"], color="#2185f5", linewidth=2.5)
+            ax3.set_title("Perfil de altura", loc="left", fontsize=13, fontweight="bold")
+            ax3.set_xlabel("Odómetro")
+            ax3.set_ylabel("Altura (m)")
+            ax3.grid(True, linestyle=":", alpha=0.35)
+
+        fig.text(0.09, 0.315, "Velocidad promedio", fontsize=12, fontweight="bold")
+        fig.text(0.12, 0.235, f"{vel_prom:.1f}", fontsize=28, color="#111827")
+        fig.text(0.165, 0.24, "km/h", fontsize=11)
+
+        fig.text(0.28, 0.315, "Kms recorridos", fontsize=12, fontweight="bold")
+        fig.text(0.295, 0.235, f"{distancia:.1f}", fontsize=28, color="#111827")
+        fig.text(0.345, 0.24, "km", fontsize=11)
+
+        fig.text(0.46, 0.315, "Consumo energético", fontsize=12, fontweight="bold")
+        fig.text(0.47, 0.235, f"{consumo:.2f}", fontsize=28, color="#111827")
+        fig.text(0.535, 0.24, "kWh", fontsize=11)
+
+        fig.text(0.65, 0.315, "Batería HV", fontsize=12, fontweight="bold")
+        fig.text(0.675, 0.235, f"{bateria:.0f}", fontsize=28, color="#111827")
+        fig.text(0.72, 0.24, "kWh", fontsize=11)
+
+        out = BytesIO()
+        fig.savefig(out, format="png", dpi=180, bbox_inches="tight", facecolor=fig.get_facecolor())
+        plt.close(fig)
+        out.seek(0)
+        return out.getvalue()
+
+    def generar_pdf_ejecutivo(trazado, bateria, distancia, consumo, rendimiento, autonomia_total, autonomia_15, vel_prom, base, logo_path=None):
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
-            pagesize=A4,
-            rightMargin=1.2 * cm,
-            leftMargin=1.2 * cm,
-            topMargin=1.0 * cm,
-            bottomMargin=1.0 * cm
+            pagesize=landscape(A4),
+            rightMargin=0.8 * cm,
+            leftMargin=0.8 * cm,
+            topMargin=0.8 * cm,
+            bottomMargin=0.8 * cm
         )
 
         styles = getSampleStyleSheet()
@@ -818,54 +932,33 @@ with tab_efi:
 
         titulo = Paragraph(f"<b>Informe Eficiencia Energética - {trazado}</b>", styles["Title"])
         story.append(titulo)
-        story.append(Spacer(1, 0.3 * cm))
+        story.append(Spacer(1, 0.15 * cm))
 
-        subt = Paragraph("Resumen ejecutivo del recorrido seleccionado", styles["Heading2"])
-        story.append(subt)
+        resumen = Paragraph(
+            "Dashboard ejecutivo del recorrido seleccionado, construido con cálculos desde la hoja resumen "
+            "y visualizaciones desde la hoja base.",
+            styles["BodyText"]
+        )
+        story.append(resumen)
         story.append(Spacer(1, 0.2 * cm))
 
-        data = [
-            ["Indicador", "Valor"],
-            ["Trazado", str(trazado)],
-            ["Batería HV", f"{bateria:.1f} kWh"],
-            ["Distancia", f"{distancia:.1f} km"],
-            ["Consumo energético", f"{consumo:.2f} kWh"],
-            ["Rendimiento", f"{rendimiento:.3f} kWh/km"],
-            ["Autonomía proyectada", f"{autonomia_total:.0f} km"],
-            ["Autonomía útil al 15% SoC", f"{autonomia_15:.0f} km"],
-            ["Velocidad promedio", f"{vel_prom:.1f} km/h"],
-        ]
-
-        tabla = Table(data, colWidths=[7 * cm, 7 * cm])
-        tabla.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4e78")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ]))
-        story.append(tabla)
-        story.append(Spacer(1, 0.5 * cm))
-
-        texto = (
-            "Este informe resume el desempeño energético del trazado seleccionado. "
-            "Los cálculos de rendimiento y autonomía se obtienen desde la hoja resumen, "
-            "mientras que la hoja base se utiliza para las visualizaciones de velocidad, "
-            "estado de carga, altimetría y recorrido."
+        img_dashboard = generar_dashboard_png(
+            base=base,
+            trazado=trazado,
+            bateria=bateria,
+            distancia=distancia,
+            consumo=consumo,
+            rendimiento=rendimiento,
+            autonomia_total=autonomia_total,
+            autonomia_15=autonomia_15,
+            vel_prom=vel_prom,
+            logo_path=logo_path
         )
-        story.append(Paragraph(texto, styles["BodyText"]))
-        story.append(Spacer(1, 0.35 * cm))
 
-        story.append(Paragraph("<b>Observaciones</b>", styles["Heading3"]))
-        obs = [
-            f"• Rendimiento calculado: {rendimiento:.3f} kWh/km.",
-            f"• Autonomía total estimada para {bateria:.1f} kWh: {autonomia_total:.0f} km.",
-            f"• Autonomía útil considerando reserva de 15% SoC: {autonomia_15:.0f} km.",
-            f"• Velocidad promedio del recorrido: {vel_prom:.1f} km/h.",
-        ]
-        for o in obs:
-            story.append(Paragraph(o, styles["BodyText"]))
+        img = Image(BytesIO(img_dashboard))
+        img.drawWidth = 27.8 * cm
+        img.drawHeight = 17.3 * cm
+        story.append(img)
 
         doc.build(story)
         buffer.seek(0)
@@ -873,9 +966,6 @@ with tab_efi:
 
     if archivo:
         try:
-            # =================================================
-            # 1) CARGA DE HOJAS
-            # =================================================
             xls = pd.ExcelFile(archivo)
             hojas = xls.sheet_names
 
@@ -892,9 +982,6 @@ with tab_efi:
             df_base.columns = [norm(c) for c in df_base.columns]
             df_resumen.columns = [norm(c) for c in df_resumen.columns]
 
-            # =================================================
-            # 2) DETECCIÓN FLEXIBLE DE COLUMNAS
-            # =================================================
             col_trazado_base = buscar_columna(df_base.columns, ["trazado", "ruta"])
             col_odo = buscar_columna(df_base.columns, ["odometro", "odómetro"])
             col_vel = buscar_columna(df_base.columns, ["velocidad"])
@@ -929,9 +1016,6 @@ with tab_efi:
                 st.error(f"Faltan columnas en hoja resumen: {', '.join(faltantes_res)}")
                 st.stop()
 
-            # =================================================
-            # 3) NORMALIZACIÓN DE DATOS
-            # =================================================
             df_base["trazado_key"] = df_base[col_trazado_base].astype(str).apply(norm)
             df_resumen["trazado_key"] = df_resumen[col_trazado_res].astype(str).apply(norm)
 
@@ -957,9 +1041,6 @@ with tab_efi:
                 st.error("No se encontraron trazados válidos.")
                 st.stop()
 
-            # =================================================
-            # 4) SELECTOR Y BATERÍA
-            # =================================================
             csel1, csel2 = st.columns([2, 1])
 
             with csel1:
@@ -981,9 +1062,6 @@ with tab_efi:
 
             res = resumen_sel.iloc[0]
 
-            # =================================================
-            # 5) CÁLCULOS SOLO DESDE HOJA 2
-            # =================================================
             distancia = float(res["distancia_calc"]) if pd.notna(res["distancia_calc"]) else None
             consumo = float(res["consumo_calc"]) if pd.notna(res["consumo_calc"]) else None
 
@@ -997,25 +1075,16 @@ with tab_efi:
 
             rendimiento = consumo / distancia
             autonomia = bateria / rendimiento if rendimiento > 0 else None
-
-            # nueva autonomía considerando 15% de reserva SoC
             bateria_util_15 = bateria * 0.85
             autonomia_15 = bateria_util_15 / rendimiento if rendimiento > 0 else None
-
             vel_prom = base["velocidad"].mean() if base["velocidad"].notna().any() else None
 
-            # =================================================
-            # 6) KPIs
-            # =================================================
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Rendimiento", f"{rendimiento:.3f} kWh/km")
             c2.metric("Autonomía proyectada", f"{autonomia:.0f} km" if autonomia is not None else "Sin dato")
             c3.metric("Velocidad promedio", f"{vel_prom:.1f} km/h" if vel_prom is not None else "Sin dato")
             c4.metric("Distancia", f"{distancia:.1f} km")
 
-            # =================================================
-            # 7) RELOJES / GAUGES COMPACTOS
-            # =================================================
             st.markdown("<div style='height:25px;'></div>", unsafe_allow_html=True)
 
             g1, g2, g3 = st.columns(3)
@@ -1063,7 +1132,7 @@ with tab_efi:
                     mode="gauge+number",
                     value=autonomia_15 if autonomia_15 is not None else 0,
                     number={"suffix": " km", "font": {"size": 26}},
-                    title={"text": f"Autonomía útil al 15% SoC", "font": {"size": 16}},
+                    title={"text": "Autonomía útil al 15% SoC", "font": {"size": 16}},
                     gauge={
                         "axis": {"range": [0, 500], "tickfont": {"size": 11}},
                         "steps": [
@@ -1077,13 +1146,9 @@ with tab_efi:
                 fig_g3.update_layout(height=240, margin=dict(l=5, r=5, t=45, b=10))
                 st.plotly_chart(fig_g3, use_container_width=True)
 
-            # =================================================
-            # 8) VELOCIDAD VS SOC
-            # =================================================
             st.markdown("### Velocidad y Estado de Carga")
 
             fig_vs = go.Figure()
-
             fig_vs.add_trace(go.Scatter(
                 x=base["odometro"],
                 y=base["velocidad"],
@@ -1109,26 +1174,16 @@ with tab_efi:
                 margin=dict(l=10, r=10, t=20, b=10),
                 xaxis=dict(title="Odómetro km"),
                 yaxis=dict(title="Velocidad km/h"),
-                yaxis2=dict(
-                    title="Estado de carga SoC",
-                    overlaying="y",
-                    side="right"
-                ),
+                yaxis2=dict(title="Estado de carga SoC", overlaying="y", side="right"),
                 legend=dict(orientation="h")
             )
-
             st.plotly_chart(fig_vs, use_container_width=True)
 
-            # =================================================
-            # 9) MAPA DEL RECORRIDO
-            # =================================================
             st.markdown("### 🛰️ Mapa del recorrido")
-
             mapa = base.dropna(subset=["lat", "lon"]).copy()
 
             if mapa.empty:
                 st.warning("No hay coordenadas válidas para mostrar el mapa.")
-                fig_map = go.Figure()
             else:
                 mapa["tipo_punto"] = "Punto recorrido"
                 mapa_inicio = mapa.iloc[[0]].copy()
@@ -1172,15 +1227,10 @@ with tab_efi:
                     margin=dict(r=0, t=0, l=0, b=0),
                     legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1)
                 )
-
                 st.plotly_chart(fig_map, use_container_width=True)
 
-            # =================================================
-            # 10) PERFIL DE ALTURA
-            # =================================================
             if base["altitud"].notna().any():
                 st.markdown("### Perfil de altura")
-
                 fig_alt = go.Figure()
                 fig_alt.add_trace(go.Scatter(
                     x=base["odometro"],
@@ -1189,21 +1239,14 @@ with tab_efi:
                     mode="lines",
                     line=dict(color="#3b82f6", width=3, shape="spline")
                 ))
-
                 fig_alt.update_layout(
                     height=320,
                     margin=dict(l=10, r=10, t=20, b=10),
                     xaxis=dict(title="Odómetro"),
                     yaxis=dict(title="Altura (m)")
                 )
-
                 st.plotly_chart(fig_alt, use_container_width=True)
-            else:
-                fig_alt = go.Figure()
 
-            # =================================================
-            # 11) BOTÓN PDF EJECUTIVO
-            # =================================================
             try:
                 pdf_bytes = generar_pdf_ejecutivo(
                     trazado=trazado_sel,
@@ -1213,7 +1256,9 @@ with tab_efi:
                     rendimiento=rendimiento,
                     autonomia_total=autonomia,
                     autonomia_15=autonomia_15,
-                    vel_prom=vel_prom
+                    vel_prom=vel_prom,
+                    base=base,
+                    logo_path=LOGO_FILE
                 )
 
                 st.download_button(
@@ -1225,15 +1270,9 @@ with tab_efi:
             except Exception as e_pdf:
                 st.warning(f"No fue posible generar el PDF: {e_pdf}")
 
-            # =================================================
-            # 12) TABLA RESUMEN VISIBLE
-            # =================================================
             st.markdown("### Tabla resumen")
             st.dataframe(df_resumen_original, use_container_width=True)
 
-            # =================================================
-            # 13) DETALLE OCULTO
-            # =================================================
             with st.expander("Ver detalle de la base"):
                 st.dataframe(df_base_original.head(200), use_container_width=True)
 

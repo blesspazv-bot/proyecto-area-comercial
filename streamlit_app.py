@@ -906,6 +906,5 @@ with tab_dash:
             df_v["precio_unitario"] = df_v["precio_unitario"].apply(usd_fmt)
             df_v["total_negocio"] = df_v["total_negocio"].apply(usd_fmt)
             st.dataframe(df_v, use_container_width=True)
-
     except Exception as e:
         st.error(f"Error dashboard: {e}")

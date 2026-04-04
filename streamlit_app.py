@@ -751,6 +751,7 @@ with tab_hist:
 # TAB 3 - EFICIENCIA ENERGÉTICA (VERSIÓN FINAL)
 # =========================================================
 with tab_efi:
+
     import pandas as pd
     import plotly.graph_objects as go
     import plotly.express as px
@@ -769,44 +770,62 @@ with tab_efi:
     if archivo:
         try:
             # =============================
-            # CARGA DATOS
+            # 🔹 CARGA DE DATOS
             # =============================
-            df = pd.read_excel(archivo, sheet_name=0)
-            df.columns = [norm(c) for c in df.columns]
+            df_base = pd.read_excel(archivo, sheet_name=0)
+            df_resumen = pd.read_excel(archivo, sheet_name=1)
 
-            df["trazado_key"] = df["trazado"].apply(norm)
+            df_base.columns = [norm(c) for c in df_base.columns]
+            df_resumen.columns = [norm(c) for c in df_resumen.columns]
 
-            trazados = df["trazado"].dropna().unique()
+            # 🔥 DETECTAR LAT / LON AUTOMATICO
+            lat_col = None
+            lon_col = None
+
+            for c in df_base.columns:
+                if "lat" in c:
+                    lat_col = c
+                if "lon" in c:
+                    lon_col = c or ("long" in c)
+
+            if not lat_col or not lon_col:
+                st.error("❌ No se encontraron columnas de latitud/longitud")
+                st.stop()
+
+            # =============================
+            # NORMALIZAR TRAZADO
+            # =============================
+            df_base["trazado_key"] = df_base["trazado"].apply(norm)
+            df_resumen["trazado_key"] = df_resumen["trazado"].apply(norm)
+
+            trazados = df_resumen["trazado"].dropna().unique()
             trazado_sel = st.selectbox("Seleccionar trazado", trazados)
 
             key = norm(trazado_sel)
-            vista = df[df["trazado_key"] == key].copy().sort_values("odometro")
+
+            base = df_base[df_base["trazado_key"] == key].copy().sort_values("odometro")
+            res = df_resumen[df_resumen["trazado_key"] == key].iloc[0]
 
             # =============================
-            # 🔥 CALCULOS AUTOMÁTICOS
+            # 🔥 CALCULOS (SOLO HOJA 2)
             # =============================
-            distancia = vista["odometro"].max() - vista["odometro"].min()
-            consumo = vista["consumo energetico"].sum() if "consumo energetico" in vista else vista.iloc[:,0].count()
+            distancia = float(res["distancia"])
+            consumo = float(res["consumo energetico"])
 
-            # Rendimiento kWh/km
-            if distancia > 0:
-                rendimiento = consumo / distancia
-            else:
-                rendimiento = None
+            rendimiento = consumo / distancia if distancia > 0 else None
 
-            # Autonomía (batería ejemplo 255)
-            bateria = 255
+            bateria = st.selectbox("Batería (kWh)", [231.8, 255, 266, 310, 382])
             autonomia = bateria / rendimiento if rendimiento else None
 
-            vel_prom = vista["velocidad"].mean()
+            vel_prom = base["velocidad"].mean()
 
             # =============================
             # KPIs
             # =============================
             c1,c2,c3,c4 = st.columns(4)
 
-            c1.metric("Rendimiento", f"{rendimiento:.3f} kWh/km" if rendimiento else "Sin dato")
-            c2.metric("Autonomía", f"{autonomia:.0f} km" if autonomia else "Sin dato")
+            c1.metric("Rendimiento", f"{rendimiento:.3f} kWh/km")
+            c2.metric("Autonomía", f"{autonomia:.0f} km")
             c3.metric("Velocidad promedio", f"{vel_prom:.1f} km/h")
             c4.metric("Distancia", f"{distancia:.1f} km")
 
@@ -816,66 +835,62 @@ with tab_efi:
             g1,g2 = st.columns(2)
 
             with g1:
-                if rendimiento:
-                    fig = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=rendimiento,
-                        number={'suffix': " kWh/km"},
-                        title={'text': "Rendimiento"},
-                        gauge={
-                            'axis': {'range': [0,1.2]},
-                            'steps':[
-                                {'range':[0,0.9],'color':'#22c55e'},
-                                {'range':[0.9,1.0],'color':'#facc15'},
-                                {'range':[1.0,1.2],'color':'#ef4444'}
-                            ]
-                        }
-                    ))
-                    fig.update_layout(height=250)
-                    st.plotly_chart(fig, use_container_width=True)
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=rendimiento,
+                    number={'suffix': " kWh/km"},
+                    title={'text': "Rendimiento"},
+                    gauge={
+                        'axis': {'range': [0,1.2]},
+                        'steps':[
+                            {'range':[0,0.9],'color':'#22c55e'},
+                            {'range':[0.9,1.0],'color':'#facc15'},
+                            {'range':[1.0,1.2],'color':'#ef4444'}
+                        ]
+                    }
+                ))
+                st.plotly_chart(fig, use_container_width=True)
 
             with g2:
-                if autonomia:
-                    fig = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=autonomia,
-                        number={'suffix': " km"},
-                        title={'text': "Autonomía"},
-                        gauge={
-                            'axis': {'range':[0,500]},
-                            'steps':[
-                                {'range':[0,280],'color':'#ef4444'},
-                                {'range':[280,350],'color':'#facc15'},
-                                {'range':[350,500],'color':'#22c55e'}
-                            ]
-                        }
-                    ))
-                    fig.update_layout(height=250)
-                    st.plotly_chart(fig, use_container_width=True)
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=autonomia,
+                    number={'suffix': " km"},
+                    title={'text': "Autonomía"},
+                    gauge={
+                        'axis': {'range':[0,500]},
+                        'steps':[
+                            {'range':[0,280],'color':'#ef4444'},
+                            {'range':[280,350],'color':'#facc15'},
+                            {'range':[350,500],'color':'#22c55e'}
+                        ]
+                    }
+                ))
+                st.plotly_chart(fig, use_container_width=True)
 
             # =============================
-            # 📈 GRAFICO SUAVE (PRO)
+            # 📈 GRAFICO LIMPIO (SOLUCION LINEAS RARAS)
             # =============================
             st.markdown("### Velocidad y Estado de Carga")
 
             fig = go.Figure()
 
             fig.add_trace(go.Scatter(
-                x=vista["odometro"],
-                y=vista["velocidad"],
+                x=base["odometro"],
+                y=base["velocidad"],
                 mode='lines',
                 name='Velocidad',
-                line=dict(shape='spline', width=3)
+                line=dict(width=3)
             ))
 
-            if "soc" in vista.columns:
+            if "soc" in base.columns:
                 fig.add_trace(go.Scatter(
-                    x=vista["odometro"],
-                    y=vista["soc"],
+                    x=base["odometro"],
+                    y=base["soc"],
                     mode='lines',
                     name='SoC',
                     yaxis="y2",
-                    line=dict(shape='spline', width=3)
+                    line=dict(width=3)
                 ))
 
             fig.update_layout(
@@ -887,54 +902,51 @@ with tab_efi:
             st.plotly_chart(fig, use_container_width=True)
 
             # =============================
-            # 🗺️ MAPA SATELITAL PRO
+            # 🗺️ MAPA SATELITAL PRO (FIX REAL)
             # =============================
             st.markdown("### 🛰️ Mapa del recorrido")
 
-            mapa = vista.dropna(subset=["lat","lon"])
+            mapa = base.dropna(subset=[lat_col, lon_col])
 
             fig_map = px.scatter_mapbox(
                 mapa,
-                lat="lat",
-                lon="lon",
-                zoom=13,
-                height=450
+                lat=lat_col,
+                lon=lon_col,
+                zoom=14,
+                height=500
             )
 
             fig_map.add_scattermapbox(
-                lat=mapa["lat"],
-                lon=mapa["lon"],
+                lat=mapa[lat_col],
+                lon=mapa[lon_col],
                 mode="lines",
-                line=dict(width=5)
+                line=dict(width=4)
             )
 
-            fig_map.update_layout(mapbox_style="satellite-streets")
+            fig_map.update_layout(
+                mapbox_style="satellite-streets"
+            )
+
             st.plotly_chart(fig_map, use_container_width=True)
 
             # =============================
-            # 📊 PERFIL ALTURA PRO
+            # 📊 PERFIL ALTURA
             # =============================
-            st.markdown("### Perfil de altura")
+            if "altitud" in base.columns:
+                st.markdown("### Perfil de altura")
 
-            if "altitud" in vista.columns:
                 fig_alt = go.Figure()
 
                 fig_alt.add_trace(go.Scatter(
-                    x=vista["odometro"],
-                    y=vista["altitud"],
+                    x=base["odometro"],
+                    y=base["altitud"],
                     fill='tozeroy',
                     mode='lines',
-                    line=dict(shape='spline', width=3)
+                    line=dict(width=3)
                 ))
 
                 fig_alt.update_layout(height=300)
                 st.plotly_chart(fig_alt, use_container_width=True)
-
-            # =============================
-            # 📄 BOTON PDF
-            # =============================
-            if st.button("📄 Descargar reporte PDF"):
-                st.info("👉 Te activo esto en el siguiente paso (requiere módulo PDF)")
 
         except Exception as e:
             st.error(f"Error: {e}")
